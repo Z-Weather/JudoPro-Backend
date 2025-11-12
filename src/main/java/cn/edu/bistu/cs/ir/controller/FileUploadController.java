@@ -69,9 +69,12 @@ public class FileUploadController {
         try {
             // 获取当前用户ID
             Long userId = getCurrentUserId(authentication);
-            
+
+            // 上传文件到服务器
+            String fileUrl = fileUploadUtils.uploadImage(file);
+
             // 上传图片并保存到数据库
-            UserFile userFile = userFileService.saveImageFile(userId, file);
+            UserFile userFile = userFileService.saveImageFile(userId, file, fileUrl);
             
             response.put("success", true);
             response.put("message", "图片上传成功");
@@ -119,9 +122,12 @@ public class FileUploadController {
         try {
             // 获取当前用户ID
             Long userId = getCurrentUserId(authentication);
-            
+
+            // 上传文件到服务器
+            String fileUrl = fileUploadUtils.uploadVideo(file);
+
             // 上传视频并保存到数据库
-            UserFile userFile = userFileService.saveVideoFile(userId, file);
+            UserFile userFile = userFileService.saveVideoFile(userId, file, fileUrl);
             
             response.put("success", true);
             response.put("message", "视频上传成功");
@@ -306,7 +312,9 @@ public class FileUploadController {
             for (int i = 0; i < files.length; i++) {
                 MultipartFile file = files[i];
                 try {
-                    UserFile userFile = userFileService.saveImageFile(userId, file);
+                    // 上传文件到服务器
+                    String fileUrl = fileUploadUtils.uploadImage(file);
+                    UserFile userFile = userFileService.saveImageFile(userId, file, fileUrl);
                     
                     results.put("file_" + i, Map.of(
                         "success", true,
@@ -366,9 +374,16 @@ public class FileUploadController {
             
             // 创建分页对象
             Pageable pageable = PageRequest.of(page, size);
-            
+
             // 获取用户文件列表
-            Page<UserFile> userFiles = userFileService.getUserFiles(userId, type, filename, pageable);
+            Page<UserFile> userFiles;
+            if (type != null && !type.isEmpty()) {
+                userFiles = userFileService.getUserFilesByType(userId, type, pageable);
+            } else if (filename != null && !filename.isEmpty()) {
+                userFiles = userFileService.searchUserFiles(userId, filename, pageable);
+            } else {
+                userFiles = userFileService.getUserFiles(userId, pageable);
+            }
             
             response.put("success", true);
             response.put("data", Map.of(
@@ -412,7 +427,7 @@ public class FileUploadController {
             Long userId = getCurrentUserId(authentication);
             
             // 获取文件详情
-            UserFile userFile = userFileService.getFileDetail(userId, fileId);
+            UserFile userFile = userFileService.getUserFile(userId, fileId).orElse(null);
             
             if (userFile != null) {
                 response.put("success", true);
@@ -454,7 +469,14 @@ public class FileUploadController {
             Long userId = getCurrentUserId(authentication);
             
             // 增加下载次数并获取文件信息
-            UserFile userFile = userFileService.incrementDownloadCount(userId, fileId);
+            boolean success = userFileService.incrementDownloadCount(fileId);
+            if (!success) {
+                response.put("success", false);
+                response.put("message", "文件不存在或无权限下载");
+                return ResponseEntity.notFound().build();
+            }
+
+            UserFile userFile = userFileService.getUserFile(userId, fileId).orElse(null);
             
             if (userFile != null) {
                 response.put("success", true);
