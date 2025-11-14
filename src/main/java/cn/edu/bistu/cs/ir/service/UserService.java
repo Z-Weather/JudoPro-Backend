@@ -36,4 +36,8 @@ public class UserService {
     public PasswordEncoder getPasswordEncoder() {
         return passwordEncoder;
     }
+
+    public Optional<User> findById(Long id) {
+        return userRepository.findById(id);
+    }
 }
