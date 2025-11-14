@@ -713,46 +713,71 @@ public class QueryController {
     /**
      * 模糊匹配检索接口
      * 支持模糊查询、通配符查询、前缀查询等多种模糊匹配方式
-     * 
+     *
      * @param fuzzyKeyword 模糊关键词
      * @param similarity 相似度阈值 (0.0-1.0)，可选
-     * @param page 页码，从0开始，默认0
+     * @param page 页码，从1开始，默认1
      * @param size 每页大小，默认10
      * @return 分页检索结果
      */
     @GetMapping("/fuzzy")
-    public ResponseEntity<PageResponse<Player>> fuzzySearch(
+    public QueryResponse<PageResponse<Map<String, String>>> fuzzySearch(
             @RequestParam String fuzzyKeyword,
             @RequestParam(required = false) Double similarity,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        
+
         try {
             // 参数验证
             if (fuzzyKeyword == null || fuzzyKeyword.trim().isEmpty()) {
-                return ResponseEntity.badRequest().build();
+                return QueryResponse.genErr("模糊关键词不能为空");
             }
-            
+
             if (similarity != null && (similarity < 0.0 || similarity > 1.0)) {
-                return ResponseEntity.badRequest().build();
+                return QueryResponse.genErr("相似度阈值必须在0.0-1.0之间");
             }
-            
-            if (page < 0) page = 0;
+
+            if (page < 1) page = 1;
             if (size < 1 || size > 100) size = 10;
-            
-            PageResponse<Player> result = idxService.fuzzySearch(fuzzyKeyword, similarity, page, size);
-            return ResponseEntity.ok(result);
-            
+
+            // 执行模糊搜索（转换为从0开始的页码）
+            PageResponse<Player> playerResult = idxService.fuzzySearch(fuzzyKeyword, similarity, page - 1, size);
+
+            // 转换Player为Map格式以保持一致性
+            List<Map<String, String>> results = new ArrayList<>();
+            for (Player player : playerResult.getContent()) {
+                Map<String, String> record = new HashMap<>();
+                record.put("ID", String.valueOf(player.getId()));
+                record.put("NAME", player.getName());
+                record.put("AGE", String.valueOf(player.getAge()));
+                record.put("IMAGE", player.getImage());
+                record.put("LOCATION", player.getCountry());
+                record.put("LOCATION_ICON", ""); // Player类没有此字段，置空
+                record.put("KG", String.valueOf(player.getWeight()));
+                record.put("PHOTOS", player.getPhotos());
+                results.add(record);
+            }
+
+            // 构建分页响应对象
+            PageResponse<Map<String, String>> pageResponse = PageResponse.of(
+                results,
+                page,
+                size,
+                playerResult.getTotalElements()
+            );
+
+            return QueryResponse.genSucc("模糊搜索成功", pageResponse);
+
         } catch (Exception e) {
             log.error("模糊匹配检索失败", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return QueryResponse.genErr("模糊搜索失败：" + e.getMessage());
         }
     }
     
     /**
      * 高级搜索接口
      * 支持多字段组合检索，包括关键词、模糊关键词、年龄组别、年龄范围、体重级别、体重范围、大洲、国家等条件
-     * 
+     *
      * @param keyword 精确关键词，可选
      * @param fuzzyKeyword 模糊关键词，可选
      * @param similarity 相似度阈值，可选
@@ -764,12 +789,12 @@ public class QueryController {
      * @param maxWeight 最大体重，可选
      * @param continent 大洲，可选
      * @param country 国家，可选
-     * @param page 页码，从0开始，默认0
+     * @param page 页码，从1开始，默认1
      * @param size 每页大小，默认10
      * @return 分页检索结果
      */
     @GetMapping("/advanced")
-    public ResponseEntity<PageResponse<Player>> advancedSearch(
+    public QueryResponse<PageResponse<Map<String, String>>> advancedSearch(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String fuzzyKeyword,
             @RequestParam(required = false) Double similarity,
@@ -781,9 +806,9 @@ public class QueryController {
             @RequestParam(required = false) Double maxWeight,
             @RequestParam(required = false) Continent continent,
             @RequestParam(required = false) String country,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        
+
         try {
             // 构建检索条件
             SearchCriteria criteria = SearchCriteria.builder()
@@ -799,69 +824,119 @@ public class QueryController {
                     .continent(continent)
                     .country(country)
                     .build();
-            
+
             // 参数验证
             if (!criteria.hasAnyCriteria()) {
-                return ResponseEntity.badRequest().build();
+                return QueryResponse.genErr("请至少提供一个搜索条件");
             }
-            
+
             String ageRangeError = criteria.validateAgeRange();
             if (ageRangeError != null) {
-                return ResponseEntity.badRequest().build();
+                return QueryResponse.genErr(ageRangeError);
             }
-            
+
             String weightRangeError = criteria.validateWeightRange();
             if (weightRangeError != null) {
-                return ResponseEntity.badRequest().build();
+                return QueryResponse.genErr(weightRangeError);
             }
-            
+
             String similarityError = criteria.validateSimilarity();
             if (similarityError != null) {
-                return ResponseEntity.badRequest().build();
+                return QueryResponse.genErr(similarityError);
             }
-            
-            if (page < 0) page = 0;
+
+            if (page < 1) page = 1;
             if (size < 1 || size > 100) size = 10;
-            
-            PageResponse<Player> result = idxService.advancedSearch(criteria, page, size);
-            return ResponseEntity.ok(result);
-            
+
+            // 执行高级搜索（转换为从0开始的页码）
+            PageResponse<Player> playerResult = idxService.advancedSearch(criteria, page - 1, size);
+
+            // 转换Player为Map格式以保持一致性
+            List<Map<String, String>> results = new ArrayList<>();
+            for (Player player : playerResult.getContent()) {
+                Map<String, String> record = new HashMap<>();
+                record.put("ID", String.valueOf(player.getId()));
+                record.put("NAME", player.getName());
+                record.put("AGE", String.valueOf(player.getAge()));
+                record.put("IMAGE", player.getImage());
+                record.put("LOCATION", player.getCountry());
+                record.put("LOCATION_ICON", ""); // Player类没有此字段，置空
+                record.put("KG", String.valueOf(player.getWeight()));
+                record.put("PHOTOS", player.getPhotos());
+                results.add(record);
+            }
+
+            // 构建分页响应对象
+            PageResponse<Map<String, String>> pageResponse = PageResponse.of(
+                results,
+                page,
+                size,
+                playerResult.getTotalElements()
+            );
+
+            return QueryResponse.genSucc("高级搜索成功", pageResponse);
+
         } catch (Exception e) {
             log.error("高级搜索失败", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return QueryResponse.genErr("高级搜索失败：" + e.getMessage());
         }
     }
     
     /**
      * 智能搜索接口
      * 结合精确匹配和模糊匹配的智能检索，优先返回精确匹配结果
-     * 
+     *
      * @param keyword 搜索关键词
-     * @param page 页码，从0开始，默认0
+     * @param page 页码，从1开始，默认1
      * @param size 每页大小，默认10
      * @return 分页检索结果
      */
     @GetMapping("/smart")
-    public ResponseEntity<PageResponse<Player>> smartSearch(
+    public QueryResponse<PageResponse<Map<String, String>>> smartSearch(
             @RequestParam String keyword,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        
+
         try {
             // 参数验证
             if (keyword == null || keyword.trim().isEmpty()) {
-                return ResponseEntity.badRequest().build();
+                return QueryResponse.genErr("搜索关键词不能为空");
             }
-            
-            if (page < 0) page = 0;
+
+            if (page < 1) page = 1;
             if (size < 1 || size > 100) size = 10;
-            
-            PageResponse<Player> result = idxService.smartSearch(keyword, page, size);
-            return ResponseEntity.ok(result);
-            
+
+            // 执行智能搜索（转换为从0开始的页码）
+            PageResponse<Player> playerResult = idxService.smartSearch(keyword, page - 1, size);
+
+            // 转换Player为Map格式以保持一致性
+            List<Map<String, String>> results = new ArrayList<>();
+            for (Player player : playerResult.getContent()) {
+                Map<String, String> record = new HashMap<>();
+                record.put("ID", String.valueOf(player.getId()));
+                record.put("NAME", player.getName());
+                record.put("AGE", String.valueOf(player.getAge()));
+                record.put("IMAGE", player.getImage());
+                record.put("LOCATION", player.getCountry());
+                record.put("LOCATION_ICON", ""); // Player类没有此字段，置空
+                record.put("KG", String.valueOf(player.getWeight()));
+                record.put("PHOTOS", player.getPhotos());
+                results.add(record);
+            }
+
+            // 构建分页响应对象
+            PageResponse<Map<String, String>> pageResponse = PageResponse.of(
+                results,
+                page,
+                size,
+                playerResult.getTotalElements()
+            );
+
+            return QueryResponse.genSucc("智能搜索成功", pageResponse);
+
         } catch (Exception e) {
             log.error("智能搜索失败", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return QueryResponse.genErr("智能搜索失败：" + e.getMessage());
         }
     }
 }

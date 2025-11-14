@@ -2,6 +2,8 @@ package cn.edu.bistu.cs.ir.controller;
 
 import cn.edu.bistu.cs.ir.model.User;
 import cn.edu.bistu.cs.ir.service.UserService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -14,22 +16,33 @@ import java.util.Optional;
 @RequestMapping("/api/user")
 @CrossOrigin(origins = "*")
 public class UserController {
+    private static final Logger log = LoggerFactory.getLogger(UserController.class);
+
     @Autowired
     private UserService userService;
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody User user) {
+        log.info("=== 用户注册API调用 ===");
+        log.info("接收到的用户数据: username={}, email={}", user.getUsername(), user.getEmail());
+        log.info("密码长度: {}", user.getPassword() != null ? user.getPassword().length() : 0);
+
         try {
             User registeredUser = userService.registerByEmail(user.getUsername(), user.getEmail(), user.getPassword());
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "注册成功");
             response.put("user", registeredUser);
+
+            log.info("注册成功，返回用户ID: {}", registeredUser.getId());
+            log.info("响应数据: {}", response);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.error("注册失败，错误信息: {}", e.getMessage());
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("message", "注册失败: " + e.getMessage());
+            log.info("错误响应数据: {}", response);
             return ResponseEntity.badRequest().body(response);
         }
     }

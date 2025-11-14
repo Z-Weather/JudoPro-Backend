@@ -62,10 +62,11 @@ public class FileUploadController {
     @PostMapping("/upload/image")
     public ResponseEntity<Map<String, Object>> uploadImage(
             @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "description", required = false) String description,
             Authentication authentication) {
-        
+
         Map<String, Object> response = new HashMap<>();
-        
+
         try {
             // 获取当前用户ID
             Long userId = getCurrentUserId(authentication);
@@ -75,7 +76,7 @@ public class FileUploadController {
 
             // 上传图片并保存到数据库
             UserFile userFile = userFileService.saveImageFile(userId, file, fileUrl);
-            
+
             response.put("success", true);
             response.put("message", "图片上传成功");
             response.put("data", Map.of(
@@ -84,23 +85,25 @@ public class FileUploadController {
                 "filename", userFile.getOriginalFilename(),
                 "size", userFile.getFormattedFileSize(),
                 "type", "image",
-                "uploadTime", userFile.getUploadTime()
+                "uploadTime", userFile.getUploadTime(),
+                "description", description != null ? description : "",
+                "downloadCount", userFile.getDownloadCount()
             ));
-            
+
             return ResponseEntity.ok(response);
-            
+
         } catch (IllegalArgumentException e) {
             log.warn("图片上传参数错误：{}", e.getMessage());
             response.put("success", false);
             response.put("message", e.getMessage());
             return ResponseEntity.badRequest().body(response);
-            
+
         } catch (IllegalStateException e) {
             log.warn("用户认证错误：{}", e.getMessage());
             response.put("success", false);
             response.put("message", e.getMessage());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
-            
+
         } catch (Exception e) {
             log.error("图片上传失败", e);
             response.put("success", false);
@@ -115,10 +118,11 @@ public class FileUploadController {
     @PostMapping("/upload/video")
     public ResponseEntity<Map<String, Object>> uploadVideo(
             @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "description", required = false) String description,
             Authentication authentication) {
-        
+
         Map<String, Object> response = new HashMap<>();
-        
+
         try {
             // 获取当前用户ID
             Long userId = getCurrentUserId(authentication);
@@ -128,7 +132,7 @@ public class FileUploadController {
 
             // 上传视频并保存到数据库
             UserFile userFile = userFileService.saveVideoFile(userId, file, fileUrl);
-            
+
             response.put("success", true);
             response.put("message", "视频上传成功");
             response.put("data", Map.of(
@@ -137,23 +141,25 @@ public class FileUploadController {
                 "filename", userFile.getOriginalFilename(),
                 "size", userFile.getFormattedFileSize(),
                 "type", "video",
-                "uploadTime", userFile.getUploadTime()
+                "uploadTime", userFile.getUploadTime(),
+                "description", description != null ? description : "",
+                "downloadCount", userFile.getDownloadCount()
             ));
-            
+
             return ResponseEntity.ok(response);
-            
+
         } catch (IllegalArgumentException e) {
             log.warn("视频上传参数错误：{}", e.getMessage());
             response.put("success", false);
             response.put("message", e.getMessage());
             return ResponseEntity.badRequest().body(response);
-            
+
         } catch (IllegalStateException e) {
             log.warn("用户认证错误：{}", e.getMessage());
             response.put("success", false);
             response.put("message", e.getMessage());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
-            
+
         } catch (Exception e) {
             log.error("视频上传失败", e);
             response.put("success", false);
