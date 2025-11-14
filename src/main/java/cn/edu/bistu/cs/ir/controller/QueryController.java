@@ -36,6 +36,50 @@ public class QueryController {
 
     private final IdxService idxService;
 
+    /**
+     * 将PhotoEntity转换为JSON字符串
+     */
+    private String convertPhotoEntityToJson(PhotoEntity photoEntity) {
+        if (photoEntity == null) return "[]";
+
+        try {
+            StringBuilder jsonBuilder = new StringBuilder();
+            jsonBuilder.append("{\"underTheSpotlights\":[");
+
+            if (photoEntity.getUnderTheSpotlights() != null) {
+                for (int i = 0; i < photoEntity.getUnderTheSpotlights().size(); i++) {
+                    Photo photo = photoEntity.getUnderTheSpotlights().get(i);
+                    jsonBuilder.append("{\"title\":\"").append(photo.getTitle() != null ? photo.getTitle() : "")
+                              .append("\",\"url\":\"").append(photo.getUrl() != null ? photo.getUrl() : "")
+                              .append("\"}");
+                    if (i < photoEntity.getUnderTheSpotlights().size() - 1) {
+                        jsonBuilder.append(",");
+                    }
+                }
+            }
+
+            jsonBuilder.append("],\"photos\":[");
+
+            if (photoEntity.getPhotos() != null) {
+                for (int i = 0; i < photoEntity.getPhotos().size(); i++) {
+                    Photo photo = photoEntity.getPhotos().get(i);
+                    jsonBuilder.append("{\"title\":\"").append(photo.getTitle() != null ? photo.getTitle() : "")
+                              .append("\",\"url\":\"").append(photo.getUrl() != null ? photo.getUrl() : "")
+                              .append("\"}");
+                    if (i < photoEntity.getPhotos().size() - 1) {
+                        jsonBuilder.append(",");
+                    }
+                }
+            }
+
+            jsonBuilder.append("]}");
+            return jsonBuilder.toString();
+        } catch (Exception e) {
+            log.error("转换PhotoEntity为JSON时出错", e);
+            return "[]";
+        }
+    }
+
     public QueryController(@Autowired IdxService idxService) {
         this.idxService = idxService;
     }
@@ -747,14 +791,25 @@ public class QueryController {
             List<Map<String, String>> results = new ArrayList<>();
             for (Player player : playerResult.getContent()) {
                 Map<String, String> record = new HashMap<>();
-                record.put("ID", String.valueOf(player.getId()));
+                record.put("ID", player.getId());
                 record.put("NAME", player.getName());
-                record.put("AGE", String.valueOf(player.getAge()));
+                record.put("AGE", player.getAge());
                 record.put("IMAGE", player.getImage());
-                record.put("LOCATION", player.getCountry());
-                record.put("LOCATION_ICON", ""); // Player类没有此字段，置空
-                record.put("KG", String.valueOf(player.getWeight()));
-                record.put("PHOTOS", player.getPhotos());
+                record.put("LOCATION", player.getLocation());
+                record.put("LOCATION_ICON", player.getLocationIcon() != null ? player.getLocationIcon() : "");
+                record.put("KG", player.getKg());
+
+                // 处理照片信息
+                String photosJson = "[]";
+                if (player.getPhotoEntity() != null) {
+                    try {
+                        photosJson = convertPhotoEntityToJson(player.getPhotoEntity());
+                    } catch (Exception e) {
+                        log.warn("转换照片信息失败: {}", e.getMessage());
+                        photosJson = "[]";
+                    }
+                }
+                record.put("PHOTOS", photosJson);
                 results.add(record);
             }
 
@@ -855,14 +910,25 @@ public class QueryController {
             List<Map<String, String>> results = new ArrayList<>();
             for (Player player : playerResult.getContent()) {
                 Map<String, String> record = new HashMap<>();
-                record.put("ID", String.valueOf(player.getId()));
+                record.put("ID", player.getId());
                 record.put("NAME", player.getName());
-                record.put("AGE", String.valueOf(player.getAge()));
+                record.put("AGE", player.getAge());
                 record.put("IMAGE", player.getImage());
-                record.put("LOCATION", player.getCountry());
-                record.put("LOCATION_ICON", ""); // Player类没有此字段，置空
-                record.put("KG", String.valueOf(player.getWeight()));
-                record.put("PHOTOS", player.getPhotos());
+                record.put("LOCATION", player.getLocation());
+                record.put("LOCATION_ICON", player.getLocationIcon() != null ? player.getLocationIcon() : "");
+                record.put("KG", player.getKg());
+
+                // 处理照片信息
+                String photosJson = "[]";
+                if (player.getPhotoEntity() != null) {
+                    try {
+                        photosJson = convertPhotoEntityToJson(player.getPhotoEntity());
+                    } catch (Exception e) {
+                        log.warn("转换照片信息失败: {}", e.getMessage());
+                        photosJson = "[]";
+                    }
+                }
+                record.put("PHOTOS", photosJson);
                 results.add(record);
             }
 
@@ -913,14 +979,25 @@ public class QueryController {
             List<Map<String, String>> results = new ArrayList<>();
             for (Player player : playerResult.getContent()) {
                 Map<String, String> record = new HashMap<>();
-                record.put("ID", String.valueOf(player.getId()));
+                record.put("ID", player.getId());
                 record.put("NAME", player.getName());
-                record.put("AGE", String.valueOf(player.getAge()));
+                record.put("AGE", player.getAge());
                 record.put("IMAGE", player.getImage());
-                record.put("LOCATION", player.getCountry());
-                record.put("LOCATION_ICON", ""); // Player类没有此字段，置空
-                record.put("KG", String.valueOf(player.getWeight()));
-                record.put("PHOTOS", player.getPhotos());
+                record.put("LOCATION", player.getLocation());
+                record.put("LOCATION_ICON", player.getLocationIcon() != null ? player.getLocationIcon() : "");
+                record.put("KG", player.getKg());
+
+                // 处理照片信息
+                String photosJson = "[]";
+                if (player.getPhotoEntity() != null) {
+                    try {
+                        photosJson = convertPhotoEntityToJson(player.getPhotoEntity());
+                    } catch (Exception e) {
+                        log.warn("转换照片信息失败: {}", e.getMessage());
+                        photosJson = "[]";
+                    }
+                }
+                record.put("PHOTOS", photosJson);
                 results.add(record);
             }
 
