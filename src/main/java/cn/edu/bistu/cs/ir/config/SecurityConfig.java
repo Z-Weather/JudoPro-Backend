@@ -19,6 +19,7 @@ public class SecurityConfig {
         http
             .authorizeRequests()
                 .antMatchers("/user/register", "/user/login", "/query/**").permitAll()
+                .antMatchers("/api/user/**", "/query/**").permitAll()  // 允许所有用户API
                 .antMatchers("/uploads/**").permitAll()  // 允许访问上传的文件
                 .antMatchers("/api/file/info").permitAll()  // 允许获取文件信息
                 .antMatchers("/api/file/upload/**", "/api/file/delete").authenticated()  // 文件上传和删除需要认证
