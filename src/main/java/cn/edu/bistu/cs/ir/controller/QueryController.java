@@ -4,6 +4,8 @@ import cn.edu.bistu.cs.ir.index.IdxService;
 import cn.edu.bistu.cs.ir.model.AgeGroup;
 import cn.edu.bistu.cs.ir.model.Continent;
 import cn.edu.bistu.cs.ir.model.CountryContinentMapping;
+import cn.edu.bistu.cs.ir.model.Photo;
+import cn.edu.bistu.cs.ir.model.PhotoEntity;
 import cn.edu.bistu.cs.ir.model.Player;
 import cn.edu.bistu.cs.ir.model.WeightClass;
 import cn.edu.bistu.cs.ir.service.SearchCriteria;
