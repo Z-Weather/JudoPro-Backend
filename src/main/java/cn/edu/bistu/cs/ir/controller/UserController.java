@@ -36,10 +36,17 @@ public class UserController {
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> loginRequest) {
-        String email = loginRequest.get("email");
+        String username = loginRequest.get("username");
         String password = loginRequest.get("password");
 
-        Optional<User> userOpt = userService.findByEmail(email);
+        // 首先尝试用用户名查找
+        Optional<User> userOpt = userService.findByUsername(username);
+
+        // 如果用户名找不到，尝试用邮箱查找
+        if (!userOpt.isPresent()) {
+            userOpt = userService.findByEmail(username);
+        }
+
         if (userOpt.isPresent()) {
             User user = userOpt.get();
             if (userService.getPasswordEncoder().matches(password, user.getPassword())) {
@@ -53,7 +60,7 @@ public class UserController {
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", false);
-        response.put("message", "邮箱或密码错误");
+        response.put("message", "用户名或密码错误");
         return ResponseEntity.status(401).body(response);
     }
 
