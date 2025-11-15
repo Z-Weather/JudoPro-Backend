@@ -1,5 +1,6 @@
 package cn.edu.bistu.cs.ir.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import javax.persistence.*;
 
@@ -21,5 +22,17 @@ public class User {
 
     private String avatar;
 
+    private String realName;
+
+    private String gender;
+
+    private String birthDate;
+
     private boolean enabled = true;
+
+    // 用于JSON序列化时排除密码字段
+    @JsonIgnore
+    public String getPassword() {
+        return this.password;
+    }
 }

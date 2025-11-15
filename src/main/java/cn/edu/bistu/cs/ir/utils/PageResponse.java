@@ -31,9 +31,43 @@ public class PageResponse<T> {
     public List<T> getData() {
         return data;
     }
-    
+
     public void setData(List<T> data) {
         this.data = data;
+    }
+
+    // 兼容性方法，添加getContent()方法
+    public List<T> getContent() {
+        return data;
+    }
+
+    public void setContent(List<T> data) {
+        this.data = data;
+    }
+
+    // 添加其他可能需要的兼容性方法
+    public long getTotalElements() {
+        return pageInfo != null ? pageInfo.getTotal() : 0;
+    }
+
+    public int getNumber() {
+        return pageInfo != null ? pageInfo.getPageNo() : 0;
+    }
+
+    public int getSize() {
+        return pageInfo != null ? pageInfo.getPageSize() : 0;
+    }
+
+    public int getTotalPages() {
+        return pageInfo != null ? pageInfo.getTotalPages() : 0;
+    }
+
+    public boolean hasNext() {
+        return pageInfo != null && pageInfo.isHasNext();
+    }
+
+    public boolean hasPrevious() {
+        return pageInfo != null && pageInfo.isHasPrevious();
     }
     
     public PageInfo getPageInfo() {

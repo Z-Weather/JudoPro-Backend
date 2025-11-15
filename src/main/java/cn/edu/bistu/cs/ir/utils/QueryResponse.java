@@ -15,6 +15,7 @@ public class QueryResponse<T> {
         QueryResponse<T> response = new QueryResponse<>();
         response.setSuccess(false);
         response.setMsg(msg);
+        response.setMessage(msg); // 同时设置message字段
         return response;
     }
 
@@ -29,6 +30,7 @@ public class QueryResponse<T> {
         QueryResponse<T> response = new QueryResponse<>();
         response.setSuccess(true);
         response.setMsg(msg);
+        response.setMessage(msg); // 同时设置message字段
         response.setData(data);
         return response;
     }
@@ -42,6 +44,17 @@ public class QueryResponse<T> {
      * 请求成功/不成功，返回的提示性消息。
      */
     private String msg=null;
+
+    /**
+     * 为了兼容前端，添加message字段
+     */
+    public String getMessage() {
+        return msg;
+    }
+
+    public void setMessage(String message) {
+        this.msg = message;
+    }
 
     /**
      *  返回结果中的数据对象，必须是可以被JSON序列化的
