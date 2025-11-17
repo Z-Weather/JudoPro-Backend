@@ -24,7 +24,7 @@ public class UserController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody User user) {
         log.info("=== 用户注册API调用 ===");
-        log.info("接收到的用户数据: username={}, email={},password={}", user.getUsername(), user.getEmail(),user.getPassword());
+        log.info("接收到的用户数据: username={}, email={}}", user.getUsername(), user.getEmail());
         log.info("密码长度: {}", user.getPassword() != null ? user.getPassword().length() : 0);
 
         try {
