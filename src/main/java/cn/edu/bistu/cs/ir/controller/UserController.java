@@ -7,6 +7,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import javax.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.Map;
@@ -54,7 +57,7 @@ public class UserController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> loginRequest) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> loginRequest, HttpServletRequest request) {
         String username = loginRequest.get("username");
         String password = loginRequest.get("password");
         log.info("用户登录API调用 - username: {}", username);
@@ -73,13 +76,23 @@ public class UserController {
                 log.info("找到用户 - userId: {}, username: {}", user.getId(), user.getUsername());
 
                 if (userService.getPasswordEncoder().matches(password, user.getPassword())) {
-                    log.info("密码验证成功 - userId: {}", user.getId());
+                    log.info("密码验证成功，建立Session - userId: {}", user.getId());
+
+                    // 创建简单的Authentication对象
+                    UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(user.getUsername(), null, java.util.Collections.emptyList());
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                    // 在Session中保存用户信息
+                    request.getSession().setAttribute("currentUser", user);
+                    request.getSession().setAttribute("userId", user.getId());
 
                     Map<String, Object> response = new HashMap<>();
                     response.put("success", true);
                     response.put("message", "登录成功");
                     response.put("user", user);
 
+                    log.info("Session建立成功 - userId: {}, sessionId: {}", user.getId(), request.getSession().getId());
                     return ResponseEntity.ok(response);
 
                 } else {
@@ -107,20 +120,38 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<?> getCurrentUser(Authentication authentication) {
+    public ResponseEntity<?> getCurrentUser(Authentication authentication, HttpServletRequest request) {
         log.info("获取当前用户API调用");
 
         try {
-            if (authentication != null && authentication.getPrincipal() != null) {
-                log.info("获取当前用户成功");
-                return ResponseEntity.ok(authentication.getPrincipal());
-            } else {
-                log.warn("用户未登录");
-                return ResponseEntity.status(401).body(Map.of(
-                    "success", false,
-                    "message", "用户未登录"
-                ));
+            // 首先检查Session中的用户信息
+            User sessionUser = (User) request.getSession().getAttribute("currentUser");
+            if (sessionUser != null) {
+                log.info("从Session获取用户成功 - userId: {}", sessionUser.getId());
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("message", "获取用户信息成功");
+                response.put("user", sessionUser);
+                return ResponseEntity.ok(response);
             }
+
+            // 备用方案：检查Authentication
+            if (authentication != null && authentication.getPrincipal() != null) {
+                log.info("从Authentication获取用户成功");
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("message", "获取用户信息成功");
+                response.put("user", authentication.getPrincipal());
+                return ResponseEntity.ok(response);
+            }
+
+            // 都没有找到，说明用户未登录
+            log.warn("用户未登录");
+            return ResponseEntity.status(401).body(Map.of(
+                "success", false,
+                "message", "用户未登录，请先登录"
+            ));
+
         } catch (Exception e) {
             log.error("获取当前用户异常 - error: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
@@ -168,6 +199,36 @@ public class UserController {
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("message", "获取用户信息失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(response);
+        }
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(HttpServletRequest request) {
+        log.info("用户退出登录API调用");
+
+        try {
+            // 清除Session
+            if (request.getSession(false) != null) {
+                Long userId = (Long) request.getSession().getAttribute("userId");
+                log.info("用户退出登录 - userId: {}", userId);
+                request.getSession().invalidate();
+            }
+
+            // 清除SecurityContext
+            SecurityContextHolder.clearContext();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "退出登录成功");
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("退出登录异常 - error: {}", e.getMessage(), e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "退出登录失败: " + e.getMessage());
             return ResponseEntity.status(500).body(response);
         }
     }
