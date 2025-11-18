@@ -74,7 +74,7 @@ public class IdxService implements DisposableBean {
         try {
             writer.updateDocument(new Term(idFld, id), doc);
             writer.commit();
-            log.info("成功将ID为[{}]的柔道家信息加入索引", id);
+            // log.info("成功将ID为[{}]的柔道家信息加入索引", id);
             return true;
         } catch (IOException e) {
             e.printStackTrace();

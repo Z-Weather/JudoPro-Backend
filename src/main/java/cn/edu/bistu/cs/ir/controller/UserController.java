@@ -23,27 +23,33 @@ public class UserController {
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody User user) {
-        log.info("=== 用户注册API调用 ===");
-        log.info("接收到的用户数据: username={}, email={}}", user.getUsername(), user.getEmail());
+        log.info("用户注册API调用 - username: {}, email: {}", user.getUsername(), user.getEmail());
         log.info("密码长度: {}", user.getPassword() != null ? user.getPassword().length() : 0);
 
         try {
             User registeredUser = userService.registerByEmail(user.getUsername(), user.getEmail(), user.getPassword());
+
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "注册成功");
             response.put("user", registeredUser);
 
-            log.info("注册成功，返回用户ID: {}", registeredUser.getId());
-            log.info("响应数据: {}", response);
+            log.info("用户注册成功 - userId: {}, username: {}", registeredUser.getId(), registeredUser.getUsername());
             return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("注册失败，错误信息: {}", e.getMessage());
+
+        } catch (IllegalArgumentException e) {
+            log.error("注册参数错误 - username: {}, error: {}", user.getUsername(), e.getMessage());
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("message", "注册失败: " + e.getMessage());
-            log.info("错误响应数据: {}", response);
             return ResponseEntity.badRequest().body(response);
+
+        } catch (Exception e) {
+            log.error("注册系统异常 - username: {}, error: {}", user.getUsername(), e.getMessage(), e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "系统错误: " + e.getMessage());
+            return ResponseEntity.status(500).body(response);
         }
     }
 
@@ -51,58 +57,118 @@ public class UserController {
     public ResponseEntity<?> login(@RequestBody Map<String, String> loginRequest) {
         String username = loginRequest.get("username");
         String password = loginRequest.get("password");
+        log.info("用户登录API调用 - username: {}", username);
 
-        // 首先尝试用用户名查找
-        Optional<User> userOpt = userService.findByUsername(username);
+        try {
+            // 尝试用用户名查找
+            Optional<User> userOpt = userService.findByUsername(username);
 
-        // 如果用户名找不到，尝试用邮箱查找
-        if (!userOpt.isPresent()) {
-            userOpt = userService.findByEmail(username);
-        }
-
-        if (userOpt.isPresent()) {
-            User user = userOpt.get();
-            if (userService.getPasswordEncoder().matches(password, user.getPassword())) {
-                Map<String, Object> response = new HashMap<>();
-                response.put("success", true);
-                response.put("message", "登录成功");
-                response.put("user", user);
-                return ResponseEntity.ok(response);
+            // 如果用户名找不到，尝试用邮箱查找
+            if (!userOpt.isPresent()) {
+                userOpt = userService.findByEmail(username);
             }
-        }
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", false);
-        response.put("message", "用户名或密码错误");
-        return ResponseEntity.status(401).body(response);
+            if (userOpt.isPresent()) {
+                User user = userOpt.get();
+                log.info("找到用户 - userId: {}, username: {}", user.getId(), user.getUsername());
+
+                if (userService.getPasswordEncoder().matches(password, user.getPassword())) {
+                    log.info("密码验证成功 - userId: {}", user.getId());
+
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("success", true);
+                    response.put("message", "登录成功");
+                    response.put("user", user);
+
+                    return ResponseEntity.ok(response);
+
+                } else {
+                    log.warn("密码验证失败 - username: {}", username);
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("success", false);
+                    response.put("message", "用户名或密码错误");
+                    return ResponseEntity.status(401).body(response);
+                }
+            } else {
+                log.warn("用户不存在 - username: {}", username);
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", false);
+                response.put("message", "用户名或密码错误");
+                return ResponseEntity.status(401).body(response);
+            }
+
+        } catch (Exception e) {
+            log.error("登录系统异常 - username: {}, error: {}", username, e.getMessage(), e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "登录失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(response);
+        }
     }
 
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(Authentication authentication) {
-        return ResponseEntity.ok(authentication.getPrincipal());
+        log.info("获取当前用户API调用");
+
+        try {
+            if (authentication != null && authentication.getPrincipal() != null) {
+                log.info("获取当前用户成功");
+                return ResponseEntity.ok(authentication.getPrincipal());
+            } else {
+                log.warn("用户未登录");
+                return ResponseEntity.status(401).body(Map.of(
+                    "success", false,
+                    "message", "用户未登录"
+                ));
+            }
+        } catch (Exception e) {
+            log.error("获取当前用户异常 - error: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", "系统错误: " + e.getMessage()
+            ));
+        }
     }
 
     @GetMapping("/info/{userId}")
     public ResponseEntity<?> getUserInfo(@PathVariable Long userId) {
+        log.info("获取用户信息API调用 - userId: {}", userId);
+
         try {
             Optional<User> userOpt = userService.findById(userId);
+
             if (userOpt.isPresent()) {
+                User user = userOpt.get();
+                log.info("找到用户 - userId: {}, username: {}", user.getId(), user.getUsername());
+
                 Map<String, Object> response = new HashMap<>();
                 response.put("success", true);
                 response.put("message", "获取用户信息成功");
-                response.put("user", userOpt.get());
+                response.put("user", user);
+
                 return ResponseEntity.ok(response);
+
             } else {
+                log.warn("用户不存在 - userId: {}", userId);
                 Map<String, Object> response = new HashMap<>();
                 response.put("success", false);
-                response.put("message", "用户不存在");
-                return ResponseEntity.notFound().build();
+                response.put("message", "用户不存在，用户ID: " + userId);
+                return ResponseEntity.status(404).body(response);
             }
+
+        } catch (NumberFormatException e) {
+            log.error("用户ID格式错误 - userId: {}, error: {}", userId, e.getMessage());
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "用户ID格式错误");
+            return ResponseEntity.badRequest().body(response);
+
         } catch (Exception e) {
+            log.error("获取用户信息系统异常 - userId: {}, error: {}", userId, e.getMessage(), e);
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("message", "获取用户信息失败: " + e.getMessage());
-            return ResponseEntity.badRequest().body(response);
+            return ResponseEntity.status(500).body(response);
         }
     }
 }

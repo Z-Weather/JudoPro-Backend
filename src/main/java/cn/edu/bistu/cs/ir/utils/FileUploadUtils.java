@@ -32,18 +32,37 @@ public class FileUploadUtils {
     
     @PostConstruct
     public void init() {
+        log.info("=== FileUploadUtils 初始化 ===");
+
         // 创建上传目录
-        createDirectoryIfNotExists(fileUploadConfig.getAbsoluteUploadPath());
-        createDirectoryIfNotExists(fileUploadConfig.getImageUploadPath());
-        createDirectoryIfNotExists(fileUploadConfig.getVideoUploadPath());
+        String uploadPath = fileUploadConfig.getAbsoluteUploadPath();
+        String imagePath = fileUploadConfig.getImageUploadPath();
+        String videoPath = fileUploadConfig.getVideoUploadPath();
+
+        log.info("文件上传根目录: {}", uploadPath);
+        log.info("图片上传目录: {}", imagePath);
+        log.info("视频上传目录: {}", videoPath);
+
+        createDirectoryIfNotExists(uploadPath);
+        createDirectoryIfNotExists(imagePath);
+        createDirectoryIfNotExists(videoPath);
+
+        log.info("✅ 目录初始化完成");
     }
     
     /**
      * 上传图片文件
      */
     public String uploadImage(MultipartFile file) throws IOException {
+        log.info("开始上传图片文件: {}", file.getOriginalFilename());
+        log.info("目标存储目录: {}", fileUploadConfig.getImageUploadPath());
+
         validateImageFile(file);
-        return saveFile(file, fileUploadConfig.getImageUploadPath(), "images");
+
+        String fileUrl = saveFile(file, fileUploadConfig.getImageUploadPath(), "images");
+        log.info("图片上传成功，访问URL: {}", fileUrl);
+
+        return fileUrl;
     }
     
     /**

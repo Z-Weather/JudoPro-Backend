@@ -47,7 +47,7 @@ public class LucenePipeline implements Pipeline {
         if (!result) {
             log.error("无法将ID为[{}]的柔道家信息写入索引", id);
         } else {
-            log.info("成功将ID为[{}]的柔道家信息写入索引", id);
+            // log.info("成功将ID为[{}]的柔道家信息写入索引", id);
         }
     }
 

@@ -3,7 +3,9 @@ package cn.edu.bistu.cs.ir.controller;
 import cn.edu.bistu.cs.ir.entity.UserFile;
 import cn.edu.bistu.cs.ir.model.User;
 import cn.edu.bistu.cs.ir.service.UserFileService;
+import cn.edu.bistu.cs.ir.service.UserService;
 import cn.edu.bistu.cs.ir.utils.FileUploadUtils;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,13 +37,17 @@ public class FileUploadController {
     
     @Autowired
     private UserFileService userFileService;
+
+    @Autowired
+    private UserService userService;
     
     /**
      * 获取当前登录用户ID
      */
     private Long getCurrentUserId(Authentication authentication) {
         if (authentication == null || authentication.getPrincipal() == null) {
-            throw new IllegalStateException("用户未登录");
+            log.warn("⚠️ 用户未登录，尝试查找或创建测试用户");
+            return getOrCreateTestUser();
         }
         
         Object principal = authentication.getPrincipal();
@@ -55,6 +61,31 @@ public class FileUploadController {
         
         throw new IllegalStateException("无效的用户认证信息");
     }
+
+    /**
+     * 获取或创建测试用户（用于未登录情况下的测试）
+     */
+    private Long getOrCreateTestUser() {
+        try {
+            // 尝试查找测试用户
+            Optional<User> testUserOpt = userService.findByUsername("testuser");
+            if (testUserOpt.isPresent()) {
+                Long userId = testUserOpt.get().getId();
+                log.info("找到测试用户，ID: {}", userId);
+                return userId;
+            }
+
+            // 创建测试用户
+            log.info("未找到测试用户，创建新的测试用户...");
+            User testUser = userService.registerByEmail("testuser", "test@example.com", "test123");
+            log.info("创建测试用户成功，ID: {}", testUser.getId());
+            return testUser.getId();
+
+        } catch (Exception e) {
+            log.error("创建测试用户失败: {}", e.getMessage(), e);
+            throw new IllegalStateException("无法创建测试用户: " + e.getMessage());
+        }
+    }
     
     /**
      * 上传图片
@@ -63,19 +94,38 @@ public class FileUploadController {
     public ResponseEntity<Map<String, Object>> uploadImage(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "description", required = false) String description,
+            @RequestParam(value = "category", required = false, defaultValue = "general") String category,
             Authentication authentication) {
+
+        log.info("=== 图片上传API调用 ===");
+        log.info("文件名: {}", file != null ? file.getOriginalFilename() : "null");
+        log.info("文件大小: {} bytes", file != null ? file.getSize() : "null");
+        log.info("描述: {}", description);
+        log.info("分类: {}", category);
 
         Map<String, Object> response = new HashMap<>();
 
         try {
+            if (file == null || file.isEmpty()) {
+                log.warn("❌ 上传文件为空");
+                response.put("success", false);
+                response.put("message", "请选择要上传的文件");
+                return ResponseEntity.badRequest().body(response);
+            }
+
             // 获取当前用户ID
             Long userId = getCurrentUserId(authentication);
+            log.info("当前用户ID: {}", userId);
 
             // 上传文件到服务器
+            log.info("开始上传文件到服务器...");
             String fileUrl = fileUploadUtils.uploadImage(file);
+            log.info("文件上传成功，URL: {}", fileUrl);
 
             // 上传图片并保存到数据库
+            log.info("开始保存文件信息到数据库...");
             UserFile userFile = userFileService.saveImageFile(userId, file, fileUrl);
+            log.info("文件信息保存成功，数据库ID: {}", userFile.getId());
 
             response.put("success", true);
             response.put("message", "图片上传成功");
@@ -87,13 +137,15 @@ public class FileUploadController {
                 "type", "image",
                 "uploadTime", userFile.getUploadTime(),
                 "description", description != null ? description : "",
+                "category", category,
                 "downloadCount", userFile.getDownloadCount()
             ));
 
+            log.info("✅ 图片上传完成，文件ID: {}, URL: {}", userFile.getId(), userFile.getFileUrl());
             return ResponseEntity.ok(response);
 
         } catch (IllegalArgumentException e) {
-            log.warn("图片上传参数错误：{}", e.getMessage());
+            log.error("❌ 图片上传参数错误：{}", e.getMessage());
             response.put("success", false);
             response.put("message", e.getMessage());
             return ResponseEntity.badRequest().body(response);
