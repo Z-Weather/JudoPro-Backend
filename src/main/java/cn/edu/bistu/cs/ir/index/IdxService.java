@@ -245,24 +245,29 @@ public class IdxService implements DisposableBean {
      * @return 分页检索结果
      */
     public PageResult queryByWeightClass(WeightClass weightClass, int pageNo, int pageSize) throws Exception {
+        log.info("IdxService查询体重级别 - weightClass: {}, pageNo: {}, pageSize: {}",
+                weightClass != null ? weightClass.getCode() : "null", pageNo, pageSize);
+
         if (weightClass == null) {
             throw new IllegalArgumentException("体重级别不能为空");
         }
-        
+
         // 参数验证
         if (pageNo < 1) pageNo = 1;
         if (pageSize < 1) pageSize = 10;
-        
+
         // 打开准实时索引Reader
         DirectoryReader reader = DirectoryReader.open(writer);
         IndexSearcher searcher = new IndexSearcher(reader);
-        
+
         // 构建体重级别查询
         Query query = new TermQuery(new Term("KG", weightClass.getCode()));
-        
+        log.info("构建Lucene查询 - KG: {}, 查询类型: TermQuery", weightClass.getCode());
+
         // 先获取总记录数
         TopDocs totalDocs = searcher.search(query, Integer.MAX_VALUE);
         long total = totalDocs.totalHits.value;
+        log.info("总记录数查询完成 - 找到{}条记录", total);
         
         // 计算分页参数
         int fromIndex = (pageNo - 1) * pageSize;

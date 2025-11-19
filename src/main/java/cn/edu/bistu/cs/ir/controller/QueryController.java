@@ -145,6 +145,8 @@ public class QueryController {
     public QueryResponse<PageResponse<Map<String, String>>> queryByAgeGroup(@RequestParam(name = "ageGroup") String ageGroup,
                                                                            @RequestParam(name = "pageNo", defaultValue = "1") int pageNo,
                                                                            @RequestParam(name = "pageSize", defaultValue = "10") int pageSize) {
+        log.info("年龄组查询API - ageGroup: {}, pageNo: {}, pageSize: {}", ageGroup, pageNo, pageSize);
+
         try {
             // 参数验证
             if (pageNo < 1) pageNo = 1;
@@ -198,34 +200,46 @@ public class QueryController {
     public QueryResponse<PageResponse<Map<String, String>>> queryByWeightClass(@RequestParam(name = "weightClass") String weightClass,
                                                                               @RequestParam(name = "pageNo", defaultValue = "1") int pageNo,
                                                                               @RequestParam(name = "pageSize", defaultValue = "10") int pageSize) {
+        log.info("体重级别查询API - weightClass: {}, pageNo: {}, pageSize: {}", weightClass, pageNo, pageSize);
+
         try {
             // 参数验证
             if (pageNo < 1) pageNo = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 10;
-            
+
             // 解析体重级别
             WeightClass wc = WeightClass.getByCode(weightClass);
+            log.info("解析体重级别: {} -> {}", weightClass, wc != null ? wc.getDisplayName() : "null");
+
             if (wc == null) {
+                log.warn("体重级别参数无效: {}", weightClass);
                 return QueryResponse.genErr("无效的体重级别，支持：-60, -66, -73, -81, -90, -100, +100");
             }
-            
+
+            log.info("开始Lucene体重级别查询 - 体重级别: {}", wc.getDisplayName());
             // 使用Lucene层面分页查询
             IdxService.PageResult pageResult = idxService.queryByWeightClass(wc, pageNo, pageSize);
-            
             // 转换Document为Map
             List<Map<String, String>> results = new ArrayList<>();
             for (Document doc : pageResult.getDocuments()) {
+                String kg = doc.get("KG");
+                String name = doc.get("NAME");
+
+                log.info("找到运动员 - 姓名: {}, 体重级别: {}", name, kg);
+
                 Map<String, String> record = new HashMap<>();
                 record.put("ID", doc.get("ID"));
-                record.put("NAME", doc.get("NAME"));
+                record.put("NAME", name);
                 record.put("AGE", doc.get("AGE"));
                 record.put("IMAGE", doc.get("IMAGE"));
                 record.put("LOCATION", doc.get("LOCATION"));
                 record.put("LOCATION_ICON", doc.get("LOCATION_ICON"));
-                record.put("KG", doc.get("KG"));
+                record.put("KG", kg);
                 record.put("PHOTOS", doc.get("PHOTOS"));
                 results.add(record);
             }
+
+            log.info("Document转换完成 - 转换记录数: {}", results.size());
             
             // 构建分页响应对象
             PageResponse<Map<String, String>> pageResponse = PageResponse.of(results, pageNo, pageSize, pageResult.getTotal());
@@ -399,13 +413,17 @@ public class QueryController {
     public QueryResponse<PageResponse<Map<String, String>>> queryByCountry(@RequestParam(name = "country") String country,
                                                                           @RequestParam(name = "pageNo", defaultValue = "1") int pageNo,
                                                                           @RequestParam(name = "pageSize", defaultValue = "10") int pageSize) {
+        log.info("国家查询API - country: {}, pageNo: {}, pageSize: {}", country, pageNo, pageSize);
+
         try {
             // 参数验证
             if (pageNo < 1) pageNo = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 10;
-            
+
+            log.info("开始Lucene国家查询 - 国家: {}", country);
             // 使用Lucene层面分页查询
             IdxService.PageResult pageResult = idxService.queryByCountry(country, pageNo, pageSize);
+            log.info("Lucene查询完成 - 结果总数: {}", pageResult.getTotal());
             
             // 转换Document为Map
             List<Map<String, String>> results = new ArrayList<>();
@@ -592,6 +610,9 @@ public class QueryController {
             @RequestParam(name = "country", required = false) String country,
             @RequestParam(name = "pageNo", defaultValue = "1") int pageNo,
             @RequestParam(name = "pageSize", defaultValue = "10") int pageSize) {
+        log.info("组合查询API - keyword: {}, ageGroup: {}, weightClass: {}, country: {}, pageNo: {}, pageSize: {}",
+                keyword, ageGroup, weightClass, country, pageNo, pageSize);
+
         try {
             // 参数验证
             if (pageNo < 1) pageNo = 1;
