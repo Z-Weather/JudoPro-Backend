@@ -632,10 +632,10 @@ public class IdxService implements DisposableBean {
                 // 使用相似度作为权重调整因子
                 float boost = similarity.floatValue();
                 BoostQuery boostedNameQuery = new BoostQuery(nameFuzzyQuery, boost);
-                BoostQuery boostedCountryQuery = new BoostQuery(countryFuzzyQuery, boost);
+                BoostQuery boostedLocationQuery = new BoostQuery(locationFuzzyQuery, boost);
                 
                 queryBuilder.add(boostedNameQuery, BooleanClause.Occur.SHOULD);
-                queryBuilder.add(boostedCountryQuery, BooleanClause.Occur.SHOULD);
+                queryBuilder.add(boostedLocationQuery, BooleanClause.Occur.SHOULD);
             }
             
             BooleanQuery query = queryBuilder.build();
@@ -685,12 +685,12 @@ public class IdxService implements DisposableBean {
                 BooleanQuery.Builder keywordQueryBuilder = new BooleanQuery.Builder();
                 
                 // 精确匹配
-                TermQuery nameQuery = new TermQuery(new Term("name", criteria.getKeyword().toLowerCase()));
-                TermQuery countryQuery = new TermQuery(new Term("country", criteria.getKeyword().toLowerCase()));
-                
+                TermQuery nameQuery = new TermQuery(new Term("NAME", criteria.getKeyword().toLowerCase()));
+                TermQuery countryQuery = new TermQuery(new Term("LOCATION", criteria.getKeyword().toLowerCase()));
+
                 // 短语查询 - 提高精确度
                 PhraseQuery namePhraseQuery = new PhraseQuery.Builder()
-                    .add(new Term("name", criteria.getKeyword().toLowerCase()))
+                    .add(new Term("NAME", criteria.getKeyword().toLowerCase()))
                     .build();
                 
                 keywordQueryBuilder.add(nameQuery, BooleanClause.Occur.SHOULD);
@@ -705,24 +705,24 @@ public class IdxService implements DisposableBean {
                 BooleanQuery.Builder fuzzyQueryBuilder = new BooleanQuery.Builder();
                 
                 // 模糊查询
-                FuzzyQuery nameFuzzyQuery = new FuzzyQuery(new Term("name", criteria.getFuzzyKeyword().toLowerCase()), 2);
-                FuzzyQuery countryFuzzyQuery = new FuzzyQuery(new Term("country", criteria.getFuzzyKeyword().toLowerCase()), 2);
+                FuzzyQuery nameFuzzyQuery = new FuzzyQuery(new Term("NAME", criteria.getFuzzyKeyword().toLowerCase()), 2);
+                FuzzyQuery locationFuzzyQuery = new FuzzyQuery(new Term("LOCATION", criteria.getFuzzyKeyword().toLowerCase()), 2);
                 
                 // 通配符查询
-                WildcardQuery nameWildcardQuery = new WildcardQuery(new Term("name", "*" + criteria.getFuzzyKeyword().toLowerCase() + "*"));
-                WildcardQuery countryWildcardQuery = new WildcardQuery(new Term("country", "*" + criteria.getFuzzyKeyword().toLowerCase() + "*"));
+                WildcardQuery nameWildcardQuery = new WildcardQuery(new Term("NAME", "*" + criteria.getFuzzyKeyword().toLowerCase() + "*"));
+                WildcardQuery locationWildcardQuery = new WildcardQuery(new Term("LOCATION", "*" + criteria.getFuzzyKeyword().toLowerCase() + "*"));
                 
                 fuzzyQueryBuilder.add(nameFuzzyQuery, BooleanClause.Occur.SHOULD);
-                fuzzyQueryBuilder.add(countryFuzzyQuery, BooleanClause.Occur.SHOULD);
+                fuzzyQueryBuilder.add(locationFuzzyQuery, BooleanClause.Occur.SHOULD);
                 fuzzyQueryBuilder.add(nameWildcardQuery, BooleanClause.Occur.SHOULD);
-                fuzzyQueryBuilder.add(countryWildcardQuery, BooleanClause.Occur.SHOULD);
+                fuzzyQueryBuilder.add(locationWildcardQuery, BooleanClause.Occur.SHOULD);
                 
                 mainQueryBuilder.add(fuzzyQueryBuilder.build(), BooleanClause.Occur.MUST);
             }
             
             // 3. 年龄组别检索
             if (criteria.hasAgeGroup()) {
-                TermQuery ageGroupQuery = new TermQuery(new Term("ageGroup", criteria.getAgeGroup().name()));
+                TermQuery ageGroupQuery = new TermQuery(new Term("AGE", criteria.getAgeGroup().name()));
                 mainQueryBuilder.add(ageGroupQuery, BooleanClause.Occur.MUST);
             }
             
@@ -763,13 +763,13 @@ public class IdxService implements DisposableBean {
                 BooleanQuery.Builder continentQueryBuilder = new BooleanQuery.Builder();
                 
                 // 精确匹配大洲
-                TermQuery continentQuery = new TermQuery(new Term("continent", criteria.getContinent().name()));
+                TermQuery continentQuery = new TermQuery(new Term("CONTINENT", criteria.getContinent().name()));
                 continentQueryBuilder.add(continentQuery, BooleanClause.Occur.SHOULD);
-                
+
                 // 获取该大洲的所有国家（包括others）
                 List<String> allCountries = CountryContinentMapping.getCountriesByContinentWithOthers(criteria.getContinent());
                 for (String country : allCountries) {
-                    TermQuery countryQuery = new TermQuery(new Term("country", country));
+                    TermQuery countryQuery = new TermQuery(new Term("LOCATION", country));
                     continentQueryBuilder.add(countryQuery, BooleanClause.Occur.SHOULD);
                 }
                 
@@ -778,7 +778,7 @@ public class IdxService implements DisposableBean {
             
             // 8. 国家检索
             if (criteria.hasCountry()) {
-                TermQuery countryQuery = new TermQuery(new Term("country", criteria.getCountry()));
+                TermQuery countryQuery = new TermQuery(new Term("LOCATION", criteria.getCountry()));
                 mainQueryBuilder.add(countryQuery, BooleanClause.Occur.MUST);
             }
             
@@ -825,8 +825,8 @@ public class IdxService implements DisposableBean {
             BooleanQuery.Builder queryBuilder = new BooleanQuery.Builder();
             
             // 1. 精确匹配 (高权重)
-            TermQuery exactNameQuery = new TermQuery(new Term("name", keyword.toLowerCase()));
-            TermQuery exactCountryQuery = new TermQuery(new Term("country", keyword.toLowerCase()));
+            TermQuery exactNameQuery = new TermQuery(new Term("NAME", keyword.toLowerCase()));
+            TermQuery exactCountryQuery = new TermQuery(new Term("LOCATION", keyword.toLowerCase()));
             
             BoostQuery boostedExactNameQuery = new BoostQuery(exactNameQuery, 3.0f);
             BoostQuery boostedExactCountryQuery = new BoostQuery(exactCountryQuery, 2.0f);
@@ -836,15 +836,15 @@ public class IdxService implements DisposableBean {
             
             // 2. 短语匹配 (中权重)
             PhraseQuery namePhraseQuery = new PhraseQuery.Builder()
-                .add(new Term("name", keyword.toLowerCase()))
+                .add(new Term("NAME", keyword.toLowerCase()))
                 .build();
             
             BoostQuery boostedPhraseQuery = new BoostQuery(namePhraseQuery, 2.5f);
             queryBuilder.add(boostedPhraseQuery, BooleanClause.Occur.SHOULD);
             
             // 3. 前缀匹配 (中权重)
-            PrefixQuery namePrefixQuery = new PrefixQuery(new Term("name", keyword.toLowerCase()));
-            PrefixQuery countryPrefixQuery = new PrefixQuery(new Term("country", keyword.toLowerCase()));
+            PrefixQuery namePrefixQuery = new PrefixQuery(new Term("NAME", keyword.toLowerCase()));
+            PrefixQuery countryPrefixQuery = new PrefixQuery(new Term("LOCATION", keyword.toLowerCase()));
             
             BoostQuery boostedNamePrefixQuery = new BoostQuery(namePrefixQuery, 2.0f);
             BoostQuery boostedCountryPrefixQuery = new BoostQuery(countryPrefixQuery, 1.5f);
@@ -853,21 +853,21 @@ public class IdxService implements DisposableBean {
             queryBuilder.add(boostedCountryPrefixQuery, BooleanClause.Occur.SHOULD);
             
             // 4. 模糊匹配 (低权重)
-            FuzzyQuery nameFuzzyQuery = new FuzzyQuery(new Term("name", keyword.toLowerCase()), 2);
-            FuzzyQuery countryFuzzyQuery = new FuzzyQuery(new Term("country", keyword.toLowerCase()), 2);
-            
+            FuzzyQuery nameFuzzyQuery = new FuzzyQuery(new Term("NAME", keyword.toLowerCase()), 2);
+            FuzzyQuery locationFuzzyQuery = new FuzzyQuery(new Term("LOCATION", keyword.toLowerCase()), 2);
+
             BoostQuery boostedNameFuzzyQuery = new BoostQuery(nameFuzzyQuery, 1.0f);
-            BoostQuery boostedCountryFuzzyQuery = new BoostQuery(countryFuzzyQuery, 0.8f);
-            
+            BoostQuery boostedLocationFuzzyQuery = new BoostQuery(locationFuzzyQuery, 0.8f);
+
             queryBuilder.add(boostedNameFuzzyQuery, BooleanClause.Occur.SHOULD);
-            queryBuilder.add(boostedCountryFuzzyQuery, BooleanClause.Occur.SHOULD);
+            queryBuilder.add(boostedLocationFuzzyQuery, BooleanClause.Occur.SHOULD);
             
             // 5. 通配符匹配 (最低权重)
-            WildcardQuery nameWildcardQuery = new WildcardQuery(new Term("name", "*" + keyword.toLowerCase() + "*"));
-            WildcardQuery countryWildcardQuery = new WildcardQuery(new Term("country", "*" + keyword.toLowerCase() + "*"));
+            WildcardQuery nameWildcardQuery = new WildcardQuery(new Term("NAME", "*" + keyword.toLowerCase() + "*"));
+            WildcardQuery locationWildcardQuery = new WildcardQuery(new Term("LOCATION", "*" + keyword.toLowerCase() + "*"));
             
             BoostQuery boostedNameWildcardQuery = new BoostQuery(nameWildcardQuery, 0.5f);
-            BoostQuery boostedCountryWildcardQuery = new BoostQuery(countryWildcardQuery, 0.3f);
+            BoostQuery boostedCountryWildcardQuery = new BoostQuery(locationWildcardQuery, 0.3f);
             
             queryBuilder.add(boostedNameWildcardQuery, BooleanClause.Occur.SHOULD);
             queryBuilder.add(boostedCountryWildcardQuery, BooleanClause.Occur.SHOULD);
