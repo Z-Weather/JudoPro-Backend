@@ -260,9 +260,17 @@ public class IdxService implements DisposableBean {
         DirectoryReader reader = DirectoryReader.open(writer);
         IndexSearcher searcher = new IndexSearcher(reader);
 
-        // 构建体重级别查询
+        // 构建体重级别查询 - 先尝试精确匹配，如果不行再用模糊匹配
         Query query = new TermQuery(new Term("KG", weightClass.getCode()));
         log.info("构建Lucene查询 - KG: {}, 查询类型: TermQuery", weightClass.getCode());
+
+        // 如果精确匹配没找到，尝试模糊匹配
+        TopDocs testDocs = searcher.search(query, 1);
+        if (testDocs.totalHits.value == 0) {
+            log.warn("精确匹配没找到结果，尝试模糊匹配");
+            query = new WildcardQuery(new Term("KG", "*" + weightClass.getCode() + "*"));
+            log.info("切换到模糊匹配查询 - 查询类型: WildcardQuery");
+        }
 
         // 先获取总记录数
         TopDocs totalDocs = searcher.search(query, Integer.MAX_VALUE);
@@ -361,17 +369,28 @@ public class IdxService implements DisposableBean {
         if (StringUtil.isEmpty(country)) {
             throw new IllegalArgumentException("国家名称不能为空");
         }
-        
+
+        log.info("IdxService查询国家 - country: {}, pageNo: {}, pageSize: {}", country, pageNo, pageSize);
+
         // 参数验证
         if (pageNo < 1) pageNo = 1;
         if (pageSize < 1) pageSize = 10;
-        
+
         // 打开准实时索引Reader
         DirectoryReader reader = DirectoryReader.open(writer);
         IndexSearcher searcher = new IndexSearcher(reader);
-        
-        // 构建国家查询
+
+        // 构建国家查询 - 先尝试精确匹配，如果不行再用模糊匹配
         Query query = new TermQuery(new Term("LOCATION", country));
+        log.info("构建Lucene查询 - LOCATION: {}, 查询类型: TermQuery", country);
+
+        // 如果精确匹配没找到，尝试模糊匹配
+        TopDocs testDocs = searcher.search(query, 1);
+        if (testDocs.totalHits.value == 0) {
+            log.warn("精确匹配没找到结果，尝试模糊匹配");
+            query = new WildcardQuery(new Term("LOCATION", "*" + country + "*"));
+            log.info("切换到模糊匹配查询 - 查询类型: WildcardQuery");
+        }
         
         // 先获取总记录数
         TopDocs totalDocs = searcher.search(query, Integer.MAX_VALUE);
@@ -577,32 +596,36 @@ public class IdxService implements DisposableBean {
      * @return 分页结果
      */
     public PageResponse<Player> fuzzySearch(String fuzzyKeyword, Double similarity, int page, int size) {
+        log.info("IdxService模糊搜索 - fuzzyKeyword: {}, similarity: {}, page: {}, size: {}", fuzzyKeyword, similarity, page, size);
+
         try {
             IndexReader reader = DirectoryReader.open(writer);
             IndexSearcher searcher = new IndexSearcher(reader);
-            
+
             // 构建模糊查询
             BooleanQuery.Builder queryBuilder = new BooleanQuery.Builder();
-            
-            // 1. 模糊查询 (FuzzyQuery) - 支持拼写错误和相似词
-            FuzzyQuery nameFuzzyQuery = new FuzzyQuery(new Term("name", fuzzyKeyword.toLowerCase()), 2);
-            FuzzyQuery countryFuzzyQuery = new FuzzyQuery(new Term("country", fuzzyKeyword.toLowerCase()), 2);
-            
-            // 2. 通配符查询 (WildcardQuery) - 支持*和?通配符
-            WildcardQuery nameWildcardQuery = new WildcardQuery(new Term("name", "*" + fuzzyKeyword.toLowerCase() + "*"));
-            WildcardQuery countryWildcardQuery = new WildcardQuery(new Term("country", "*" + fuzzyKeyword.toLowerCase() + "*"));
-            
-            // 3. 前缀查询 (PrefixQuery) - 支持前缀匹配
-            PrefixQuery namePrefixQuery = new PrefixQuery(new Term("name", fuzzyKeyword.toLowerCase()));
-            PrefixQuery countryPrefixQuery = new PrefixQuery(new Term("country", fuzzyKeyword.toLowerCase()));
+
+            // 1. 模糊查询 (FuzzyQuery) - 支持拼写错误和相似词 - 修正字段名！
+            FuzzyQuery nameFuzzyQuery = new FuzzyQuery(new Term("NAME", fuzzyKeyword.toLowerCase()), 2);
+            FuzzyQuery locationFuzzyQuery = new FuzzyQuery(new Term("LOCATION", fuzzyKeyword.toLowerCase()), 2);
+
+            log.info("构建FuzzyQuery - NAME: {}, LOCATION: {}", fuzzyKeyword.toLowerCase(), fuzzyKeyword.toLowerCase());
+
+            // 2. 通配符查询 (WildcardQuery) - 支持*和?通配符 - 修正字段名！
+            WildcardQuery nameWildcardQuery = new WildcardQuery(new Term("NAME", "*" + fuzzyKeyword.toLowerCase() + "*"));
+            WildcardQuery locationWildcardQuery = new WildcardQuery(new Term("LOCATION", "*" + fuzzyKeyword.toLowerCase() + "*"));
+
+            // 3. 前缀查询 (PrefixQuery) - 支持前缀匹配 - 修正字段名！
+            PrefixQuery namePrefixQuery = new PrefixQuery(new Term("NAME", fuzzyKeyword.toLowerCase()));
+            PrefixQuery locationPrefixQuery = new PrefixQuery(new Term("LOCATION", fuzzyKeyword.toLowerCase()));
             
             // 组合查询
             queryBuilder.add(nameFuzzyQuery, BooleanClause.Occur.SHOULD);
-            queryBuilder.add(countryFuzzyQuery, BooleanClause.Occur.SHOULD);
+            queryBuilder.add(locationFuzzyQuery, BooleanClause.Occur.SHOULD);
             queryBuilder.add(nameWildcardQuery, BooleanClause.Occur.SHOULD);
-            queryBuilder.add(countryWildcardQuery, BooleanClause.Occur.SHOULD);
+            queryBuilder.add(locationWildcardQuery, BooleanClause.Occur.SHOULD);
             queryBuilder.add(namePrefixQuery, BooleanClause.Occur.SHOULD);
-            queryBuilder.add(countryPrefixQuery, BooleanClause.Occur.SHOULD);
+            queryBuilder.add(locationPrefixQuery, BooleanClause.Occur.SHOULD);
             
             // 4. 如果提供了相似度阈值，调整查询权重
             if (similarity != null && similarity > 0.0) {
