@@ -260,6 +260,21 @@ public class IdxService implements DisposableBean {
         DirectoryReader reader = DirectoryReader.open(writer);
         IndexSearcher searcher = new IndexSearcher(reader);
 
+        // 调试日志：检查索引中的记录总数和KG字段值
+        int totalDocs = reader.numDocs();
+        log.info("索引中的总记录数: {}", totalDocs);
+
+        if (totalDocs > 0) {
+            // 检查前几条记录的KG字段值
+            for (int i = 0; i < Math.min(5, totalDocs); i++) {
+                Document doc = reader.document(i);
+                String id = doc.get("ID");
+                String name = doc.get("NAME");
+                String kg = doc.get("KG");
+                log.info("索引记录[{}]: ID={}, NAME={}, KG={}", i, id, name, kg);
+            }
+        }
+
         // 构建体重级别查询 - 先尝试精确匹配，如果不行再用模糊匹配
         Query query = new TermQuery(new Term("KG", weightClass.getCode()));
         log.info("构建Lucene查询 - KG: {}, 查询类型: TermQuery", weightClass.getCode());
@@ -268,8 +283,14 @@ public class IdxService implements DisposableBean {
         TopDocs testDocs = searcher.search(query, 1);
         if (testDocs.totalHits.value == 0) {
             log.warn("精确匹配没找到结果，尝试模糊匹配");
-            query = new WildcardQuery(new Term("KG", "*" + weightClass.getCode() + "*"));
-            log.info("切换到模糊匹配查询 - 查询类型: WildcardQuery");
+
+            // 详细查询日志：显示尝试匹配的内容
+            String exactSearchTerm = weightClass.getCode();
+            String fuzzySearchTerm = "*" + weightClass.getCode() + "*";
+            log.info("精确查询词: '{}', 模糊查询词: '{}'", exactSearchTerm, fuzzySearchTerm);
+
+            query = new WildcardQuery(new Term("KG", fuzzySearchTerm));
+            log.info("切换到模糊匹配查询 - 查询类型: WildcardQuery, 查询词: '{}'", fuzzySearchTerm);
         }
 
         // 先获取总记录数
