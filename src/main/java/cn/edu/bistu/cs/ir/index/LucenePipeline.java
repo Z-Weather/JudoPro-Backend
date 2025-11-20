@@ -76,7 +76,7 @@ public class LucenePipeline implements Pipeline {
         // 地区 Icon
         document.add(new TextField("LOCATION_ICON", player.getLocationIcon(), Field.Store.YES));
         // 公斤数
-        document.add(new TextField("KG", player.getKg(), Field.Store.YES));
+        document.add(new StringField("KG", player.getKg(), Field.Store.YES));
 
         // 使用JsonUtils工具类进行JSON序列化，避免重复创建ObjectMapper
         String json = JsonUtils.toJson(player.getPhotoEntity());
