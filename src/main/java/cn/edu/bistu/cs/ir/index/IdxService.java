@@ -264,8 +264,48 @@ public class IdxService implements DisposableBean {
         
         // 构建体重级别查询 - 使用WildcardQuery匹配TextField
         String kgCode = weightClass.getCode();
-        Query query = new WildcardQuery(new Term("KG", "*" + kgCode + "*"));
         log.info("构建Lucene查询 - KG: {}, 查询类型: WildcardQuery", kgCode);
+
+        // 🔍 强制调试：查看索引中的实际数据
+        log.info("=== 强制调试：检查索引数据 ===");
+        int totalDocs = reader.numDocs();
+        log.info("索引总记录数: {}", totalDocs);
+
+        // 查看前10条记录的KG字段
+        int foundKgRecords = 0;
+        for (int i = 0; i < Math.min(10, totalDocs); i++) {
+            Document doc = reader.document(i);
+            String kg = doc.get("KG");
+            log.info("索引记录[{}]: KG='{}'", i, kg);
+            if (kg != null && kg.contains("-81")) {
+                foundKgRecords++;
+                log.info("🎯 找到包含-81的记录: KG='{}'", kg);
+            }
+        }
+        log.info("前10条记录中包含-81的数量: {}", foundKgRecords);
+
+        // 🔍 测试不同查询方式
+        log.info("=== 测试不同查询方式 ===");
+
+        // 查询方式1: TermQuery
+        Query termQuery = new TermQuery(new Term("KG", "-81"));
+        TopDocs termResults = searcher.search(termQuery, 10);
+        log.info("TermQuery(\"-81\"): {}条记录", termResults.totalHits.value);
+
+        // 查询方式2: WildcardQuery (*-81*)
+        Query wildcardQuery = new WildcardQuery(new Term("KG", "*-81*"));
+        TopDocs wildcardResults = searcher.search(wildcardQuery, 10);
+        log.info("WildcardQuery(\"*-81*\"): {}条记录", wildcardResults.totalHits.value);
+
+        // 查询方式3: PhraseQuery (-81)
+        PhraseQuery.Builder phraseBuilder = new PhraseQuery.Builder();
+        phraseBuilder.add(new Term("KG", "-81"));
+        Query phraseQuery = phraseBuilder.build();
+        TopDocs phraseResults = searcher.search(phraseQuery, 10);
+        log.info("PhraseQuery(\"-81\"): {}条记录", phraseResults.totalHits.value);
+
+        // 选择效果最好的查询方式
+        Query query = wildcardQuery;
 
         // 先获取总记录数
         TopDocs totalDocs = searcher.search(query, Integer.MAX_VALUE);
