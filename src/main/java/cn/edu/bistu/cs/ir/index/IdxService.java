@@ -275,9 +275,11 @@ public class IdxService implements DisposableBean {
         log.info("=== 修复：使用QueryParser处理TextField的KG字段 ===");
 
         // 使用QueryParser构建适合TextField的查询
+        // 🎯 关键修复：转义特殊字符，防止-被解析为否定操作符
         QueryParser parser = new QueryParser("KG", new StandardAnalyzer());
-        Query query = parser.parse(kgCode);
-        log.info("构建查询: 使用QueryParser在KG字段中匹配 '{}', 查询对象: {}", kgCode, query.toString());
+        String escapedKgCode = QueryParser.escape(kgCode);
+        Query query = parser.parse(escapedKgCode);
+        log.info("构建查询: 使用QueryParser在KG字段中匹配 原始:'{}' 转义后:'{}', 查询对象: {}", kgCode, escapedKgCode, query.toString());
 
         // 先获取总记录数来验证
         TopDocs testDocs = searcher.search(query, 1);
