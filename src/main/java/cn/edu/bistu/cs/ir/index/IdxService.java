@@ -32,6 +32,7 @@ import org.apache.lucene.search.FuzzyQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.PhraseQuery;
 import org.apache.lucene.search.PrefixQuery;
+import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
@@ -44,6 +45,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.HashSet;
+import java.util.Set;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
@@ -393,16 +397,57 @@ public class IdxService implements DisposableBean {
         DirectoryReader reader = DirectoryReader.open(writer);
         IndexSearcher searcher = new IndexSearcher(reader);
 
-        // 构建国家查询 - 先尝试精确匹配，如果不行再用模糊匹配
-        Query query = new TermQuery(new Term("LOCATION", country));
-        log.info("构建Lucene查询 - LOCATION: {}, 查询类型: TermQuery", country);
+        // 🎯 调试：先检查索引中实际存储的数据总量和国家/地区数据
+        log.info("=== 调试：检查索引整体情况 ===");
+        Query allDocsQuery = new MatchAllDocsQuery();
+        TopDocs allDocs = searcher.search(allDocsQuery, Integer.MAX_VALUE);
+        log.info("索引中的总记录数: {}", allDocs.totalHits.value);
 
-        // 如果精确匹配没找到，尝试模糊匹配
+        // 检查前100条记录中的LOCATION字段数据
+        log.info("=== 调试：检查索引中的LOCATION字段数据 ===");
+        TopDocs sampleDocs = searcher.search(allDocsQuery, 100);
+        Set<String> uniqueLocations = new HashSet<>();
+        int locationFieldCount = 0;
+
+        for (ScoreDoc scoreDoc : sampleDocs.scoreDocs) {
+            Document doc = searcher.doc(scoreDoc.doc);
+            String[] locations = doc.getValues("LOCATION");
+            if (locations.length > 0) {
+                locationFieldCount++;
+                for (String location : locations) {
+                    if (!location.isEmpty()) {
+                        uniqueLocations.add(location);
+                    }
+                }
+            }
+
+            // 同时记录其他字段的信息来验证数据完整性
+            String id = doc.get("ID");
+            String name = doc.get("NAME");
+            // 显示前10条记录的详细信息
+            if (uniqueLocations.size() <= 5 && scoreDoc.doc < 10) { // 只在国家很少时显示详细信息
+                log.info("详细记录{} - ID: {}, 姓名: {}, 国家: '{}'", scoreDoc.doc, id, name, locations.length > 0 ? locations[0] : "无");
+            }
+        }
+
+        log.info("前{}条记录中有LOCATION字段的记录数: {}", sampleDocs.scoreDocs.length, locationFieldCount);
+        log.info("索引中找到的LOCATION数据样本（共{}种）: {}", uniqueLocations.size(), uniqueLocations);
+
+        // 🎯 修复：使用QueryParser处理TextField的LOCATION字段
+        log.info("=== 修复：使用QueryParser处理TextField的LOCATION字段 ===");
+        QueryParser parser = new QueryParser("LOCATION", new StandardAnalyzer());
+        String escapedCountry = QueryParser.escape(country);
+        Query query = parser.parse(escapedCountry);
+        log.info("构建查询: 使用QueryParser在LOCATION字段中匹配 原始:'{}' 转义后:'{}', 查询对象: {}", country, escapedCountry, query.toString());
+
+        // 如果QueryParser精确匹配没找到，尝试模糊匹配
         TopDocs testDocs = searcher.search(query, 1);
         if (testDocs.totalHits.value == 0) {
-            log.warn("精确匹配没找到结果，尝试模糊匹配");
-            query = new WildcardQuery(new Term("LOCATION", "*" + country + "*"));
-            log.info("切换到模糊匹配查询 - 查询类型: WildcardQuery");
+            log.warn("QueryParser��确匹配没找到结果，尝试模糊匹配");
+            // 对于模糊匹配，也使用适合TextField的方式
+            WildcardQuery wildcardQuery = new WildcardQuery(new Term("LOCATION", "*" + country + "*"));
+            query = wildcardQuery;
+            log.info("切换到模糊匹配查询 - 查询对象: {}", query.toString());
         }
         
         // 先获取总记录数
