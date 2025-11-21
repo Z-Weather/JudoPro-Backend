@@ -425,8 +425,21 @@ public class IdxService implements DisposableBean {
             String id = doc.get("ID");
             String name = doc.get("NAME");
             // 显示前10条记录的详细信息
-            if (uniqueLocations.size() <= 5 && scoreDoc.doc < 10) { // 只在国家很少时显示详细信息
-                log.info("详细记录{} - ID: {}, 姓名: {}, 国家: '{}'", scoreDoc.doc, id, name, locations.length > 0 ? locations[0] : "无");
+            if (uniqueLocations.size() <= 5 && scoreDoc.doc < 5) { // 只在国家很少时显示详细信息
+                // 检查所有可能的字段名
+                String location = doc.get("LOCATION");
+                String country = doc.get("COUNTRY");
+                String countryField = doc.get("COUNTRY_FIELD");
+                log.info("详细记录{} - ID: {}, 姓名: {}, LOCATION字段: '{}', COUNTRY字段: '{}'",
+                    scoreDoc.doc, id, name, location, country);
+
+                // 显示文档的所有字段名
+                List<IndexableField> fields = doc.getFields();
+                Set<String> fieldNames = new HashSet<>();
+                for (IndexableField field : fields) {
+                    fieldNames.add(field.name());
+                }
+                log.info("  所有字段名: {}", fieldNames);
             }
         }
 
