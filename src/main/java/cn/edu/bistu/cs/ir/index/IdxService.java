@@ -262,10 +262,10 @@ public class IdxService implements DisposableBean {
         IndexSearcher searcher = new IndexSearcher(reader);
 
         
-        // 构建体重级别查询 - 使用TermQuery精确匹配StringField
+        // 构建体重级别查询 - 使用WildcardQuery匹配TextField
         String kgCode = weightClass.getCode();
-        Query query = new TermQuery(new Term("KG", kgCode));
-        log.info("构建Lucene查询 - KG: {}, 查询类型: TermQuery", kgCode);
+        Query query = new WildcardQuery(new Term("KG", "*" + kgCode + "*"));
+        log.info("构建Lucene查询 - KG: {}, 查询类型: WildcardQuery", kgCode);
 
         // 先获取总记录数
         TopDocs totalDocs = searcher.search(query, Integer.MAX_VALUE);
@@ -491,7 +491,7 @@ public class IdxService implements DisposableBean {
         
         // 体重级别查询
         if (criteria.hasWeightClass()) {
-            Query weightQuery = new TermQuery(new Term("KG", criteria.getWeightClass().getCode()));
+            Query weightQuery = new WildcardQuery(new Term("KG", "*" + criteria.getWeightClass().getCode() + "*"));
             booleanQueryBuilder.add(weightQuery, BooleanClause.Occur.MUST);
         }
         
@@ -508,25 +508,25 @@ public class IdxService implements DisposableBean {
             
             // 根据体重范围匹配对应的体重级别
             if (minWeight <= 60 && maxWeight >= 60) {
-                weightRangeQueryBuilder.add(new TermQuery(new Term("KG", "-60")), BooleanClause.Occur.SHOULD);
+                weightRangeQueryBuilder.add(new WildcardQuery(new Term("KG", "*-60*")), BooleanClause.Occur.SHOULD);
             }
             if (minWeight <= 66 && maxWeight >= 66) {
-                weightRangeQueryBuilder.add(new TermQuery(new Term("KG", "-66")), BooleanClause.Occur.SHOULD);
+                weightRangeQueryBuilder.add(new WildcardQuery(new Term("KG", "*-66*")), BooleanClause.Occur.SHOULD);
             }
             if (minWeight <= 73 && maxWeight >= 73) {
-                weightRangeQueryBuilder.add(new TermQuery(new Term("KG", "-73")), BooleanClause.Occur.SHOULD);
+                weightRangeQueryBuilder.add(new WildcardQuery(new Term("KG", "*-73*")), BooleanClause.Occur.SHOULD);
             }
             if (minWeight <= 81 && maxWeight >= 81) {
-                weightRangeQueryBuilder.add(new TermQuery(new Term("KG", "-81")), BooleanClause.Occur.SHOULD);
+                weightRangeQueryBuilder.add(new WildcardQuery(new Term("KG", "*-81*")), BooleanClause.Occur.SHOULD);
             }
             if (minWeight <= 90 && maxWeight >= 90) {
-                weightRangeQueryBuilder.add(new TermQuery(new Term("KG", "-90")), BooleanClause.Occur.SHOULD);
+                weightRangeQueryBuilder.add(new WildcardQuery(new Term("KG", "*-90*")), BooleanClause.Occur.SHOULD);
             }
             if (minWeight <= 100 && maxWeight >= 100) {
-                weightRangeQueryBuilder.add(new TermQuery(new Term("KG", "-100")), BooleanClause.Occur.SHOULD);
+                weightRangeQueryBuilder.add(new WildcardQuery(new Term("KG", "*-100*")), BooleanClause.Occur.SHOULD);
             }
             if (maxWeight >= 100) {
-                weightRangeQueryBuilder.add(new TermQuery(new Term("KG", "+100")), BooleanClause.Occur.SHOULD);
+                weightRangeQueryBuilder.add(new WildcardQuery(new Term("KG", "*+100*")), BooleanClause.Occur.SHOULD);
             }
             
             BooleanQuery weightRangeQuery = weightRangeQueryBuilder.build();
@@ -736,7 +736,7 @@ public class IdxService implements DisposableBean {
             
             // 5. 体重级别检索
             if (criteria.hasWeightClass()) {
-                TermQuery weightClassQuery = new TermQuery(new Term("weightClass", criteria.getWeightClass().name()));
+                Query weightClassQuery = new WildcardQuery(new Term("KG", "*" + criteria.getWeightClass().getCode() + "*"));
                 mainQueryBuilder.add(weightClassQuery, BooleanClause.Occur.MUST);
             }
             
