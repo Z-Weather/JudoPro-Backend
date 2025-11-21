@@ -267,16 +267,21 @@ public class IdxService implements DisposableBean {
         IndexSearcher searcher = new IndexSearcher(reader);
 
         
-        // 构建体重级别查询 - 使用WildcardQuery匹配TextField
+        // 构建体重级别查询 - 使用QueryParser处理TextField的StandardAnalyzer分词
         String kgCode = weightClass.getCode();
-        log.info("构建Lucene查询 - KG: {}, 查询类型: WildcardQuery", kgCode);
+        log.info("构建Lucene查询 - KG: {}, 查询类型: QueryParser+StandardAnalyzer", kgCode);
 
-        // 🔧 最简单的解决方案：使用全字段通配符搜索
-        log.info("=== 最简单的解决方案 ===");
+        // 🎯 修复：KG字段是TextField，需要使用QueryParser来处理StandardAnalyzer分词
+        log.info("=== 修复：使用QueryParser处理TextField的KG字段 ===");
 
-        // 搜索所有字段中包含kgCode的记录
-        Query query = new WildcardQuery(new Term("*", "*" + kgCode + "*"));
-        log.info("构建查询: 在所有字段中搜索 '*{}*'", kgCode);
+        // 使用QueryParser构建适合TextField的查询
+        QueryParser parser = new QueryParser("KG", new StandardAnalyzer());
+        Query query = parser.parse(kgCode);
+        log.info("构建查询: 使用QueryParser在KG字段中匹配 '{}', 查询对象: {}", kgCode, query.toString());
+
+        // 先获取总记录数来验证
+        TopDocs testDocs = searcher.search(query, 1);
+        log.info("验证查询 - KG='{}' 查询结果: {}条记录", kgCode, testDocs.totalHits.value);
 
         // 先获取总记录数
         TopDocs totalDocs1 = searcher.search(query, Integer.MAX_VALUE);
