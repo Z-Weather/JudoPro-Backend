@@ -266,42 +266,66 @@ public class IdxService implements DisposableBean {
         String kgCode = weightClass.getCode();
         log.info("构建Lucene查询 - KG: {}, 查询类型: WildcardQuery", kgCode);
 
-        // 🔧 终极解决方案：使用多种查询方式确保找到数据
-        log.info("=== 终极解决方案：多重查询策略 ===");
+        // 🔍 底层调试：深入分析Lucene索引结构
+        log.info("=== 底层调试：深入分析索引结构 ===");
+        int totalDocs = reader.numDocs();
+        log.info("索引总记录数: {}", totalDocs);
 
-        // 策略1: TermQuery (适用于StringField)
-        Query termQuery = new TermQuery(new Term("KG", kgCode));
-        TopDocs termResults = searcher.search(termQuery, 10);
-        log.info("策略1 - TermQuery: {}条记录", termResults.totalHits.value);
+        // 检查KG字段的索引信息
+        if (totalDocs > 0) {
+            Document firstDoc = reader.document(0);
+            IndexableField[] kgFields = firstDoc.getFields("KG");
+            log.info("第一条记录的KG字段数量: {}", kgFields.length);
 
-        // 策略2: WildcardQuery (适用于TextField)
-        Query wildcardQuery = new WildcardQuery(new Term("KG", "*" + kgCode + "*"));
-        TopDocs wildcardResults = searcher.search(wildcardQuery, 10);
-        log.info("策略2 - WildcardQuery: {}条记录", wildcardResults.totalHits.value);
+            for (IndexableField field : kgFields) {
+                log.info("KG字段信息 - 类型: {}, 值: '{}', tokenized: {}",
+                    field.fieldType(), field.stringValue(), field.fieldType().tokenized());
+            }
 
-        // 策略3: 全文搜索
-        BooleanQuery.Builder textQueryBuilder = new BooleanQuery.Builder();
-        textQueryBuilder.add(new TermQuery(new Term("KG", kgCode)), BooleanClause.Occur.SHOULD);
-        textQueryBuilder.add(new WildcardQuery(new Term("KG", "*" + kgCode + "*")), BooleanClause.Occur.SHOULD);
-        Query textQuery = textQueryBuilder.build();
-        TopDocs textResults = searcher.search(textQuery, 10);
-        log.info("策略3 - 混合查询: {}条记录", textResults.totalHits.value);
-
-        // 选择效果最好的查询方式
-        Query query;
-        if (termResults.totalHits.value > 0) {
-            query = termQuery;
-            log.info("选择策略1: TermQuery");
-        } else if (wildcardResults.totalHits.value > 0) {
-            query = wildcardQuery;
-            log.info("选择策略2: WildcardQuery");
-        } else {
-            query = textQuery;
-            log.info("选择策略3: 混合查询");
+            // 查看前20条记录的KG字段值
+            int found81Count = 0;
+            for (int i = 0; i < Math.min(20, totalDocs); i++) {
+                Document doc = reader.document(i);
+                String kg = doc.get("KG");
+                log.info("记录[{}]: KG='{}'", i, kg);
+                if (kg != null && kg.contains("81")) {
+                    found81Count++;
+                    log.info("🎯 找到包含81的记录[{}]: KG='{}'", i, kg);
+                }
+            }
+            log.info("前20条记录中包含81的数量: {}", found81Count);
         }
 
+        // 检查分析器如何处理"-81"
+        log.info("=== 测试分析器对-81的处理 ===");
+        try {
+            // 模拟分析器分词
+            Analyzer analyzer = new StandardAnalyzer();
+            TokenStream tokenStream = analyzer.tokenStream("KG", new StringReader("-81"));
+            CharTermAttribute charTermAttribute = tokenStream.addAttribute(CharTermAttribute.class);
+            tokenStream.reset();
+
+            log.info("StandardAnalyzer对'-81'的分词结果:");
+            while (tokenStream.incrementToken()) {
+                log.info("  token: '{}'", charTermAttribute.toString());
+            }
+            tokenStream.end();
+            tokenStream.close();
+            analyzer.close();
+        } catch (Exception e) {
+            log.error("分析器测试失败: {}", e.getMessage());
+        }
+
+        // 最简单的测试：直接用关键词搜索所有字段
+        log.info("=== 最终测试：关键词搜索 ===");
+        BooleanQuery.Builder allFieldSearch = new BooleanQuery.Builder();
+        allFieldSearch.add(new WildcardQuery(new Term("*", "*" + kgCode + "*")), BooleanClause.Occur.SHOULD);
+
+        Query finalQuery = allFieldSearch.build();
+        log.info("使用关键词搜索所有字段: {}", finalQuery);
+
         // 先获取总记录数
-        TopDocs totalDocs1 = searcher.search(query, Integer.MAX_VALUE);
+        TopDocs totalDocs1 = searcher.search(finalQuery, Integer.MAX_VALUE);
         long total = totalDocs1.totalHits.value;
         log.info("总记录数查询完成 - 找到{}条记录", total);
         
