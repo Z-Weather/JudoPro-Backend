@@ -55,11 +55,15 @@ import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.ScoreDoc;
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Stream;
+import java.io.FileReader;
 
 /**
  * 面向<a href="https://lucene.apache.org/">Lucene</a>
@@ -74,8 +78,10 @@ public class IdxService implements DisposableBean {
     private static final Class<? extends Analyzer> DEFAULT_ANALYZER = StandardAnalyzer.class;
 
     private IndexWriter writer;
+    private final Config config;
 
     public IdxService(@Autowired Config config) throws Exception {
+        this.config = config;
         Analyzer analyzer = DEFAULT_ANALYZER.getConstructor().newInstance();
         Directory index;
         try {
@@ -403,6 +409,40 @@ public class IdxService implements DisposableBean {
         TopDocs allDocs = searcher.search(allDocsQuery, Integer.MAX_VALUE);
         log.info("索引中的总记录数: {}", allDocs.totalHits.value);
 
+        // 🎯 新增：检查workspace中的JSON文件数量（包括子目录）
+        try {
+            Path crawlerPath = Paths.get(config.getCrawler());
+            if (Files.exists(crawlerPath) && Files.isDirectory(crawlerPath)) {
+                // 检查根目录的JSON文件
+                long rootJsonCount = Files.list(crawlerPath)
+                    .filter(path -> path.toString().endsWith(".json"))
+                    .count();
+
+                // 递归检查所有子目录的JSON文件
+                long totalJsonCount = Files.walk(crawlerPath)
+                    .filter(path -> Files.isRegularFile(path))
+                    .filter(path -> path.toString().endsWith(".json"))
+                    .count();
+
+                log.info("=== 调试：检查workspace中的JSON文件 ===");
+                log.info("Workspace目录: {}", config.getCrawler());
+                log.info("根目录JSON文件数: {}", rootJsonCount);
+                log.info("包括子目录的JSON文件总数: {}", totalJsonCount);
+
+                // 如果JSON文件数量远大于索引记录数，说明索引没有包含所有数据
+                if (totalJsonCount > allDocs.totalHits.value + 1000) { // 加1000的容错
+                    log.warn("⚠️ 发现数据不一致！JSON文件有{}个，但索引只有{}条记录", totalJsonCount, allDocs.totalHits.value);
+                    log.warn("建议：可能需要从workspace重建索引以包含所有数据");
+                } else if (totalJsonCount == 0) {
+                    log.warn("⚠️ 警告：workspace目��中没有JSON文件，索引可能过时");
+                } else {
+                    log.info("✅ JSON文件数量({})与索引记录数({})基本匹配", totalJsonCount, allDocs.totalHits.value);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("无法检查workspace中的JSON文件数量: {}", e.getMessage());
+        }
+
         // 检查前100条记录中的LOCATION字段数据
         log.info("=== 调试：检查索引中的LOCATION字段数据 ===");
         TopDocs sampleDocs = searcher.search(allDocsQuery, 100);
@@ -428,10 +468,10 @@ public class IdxService implements DisposableBean {
             if (uniqueLocations.size() <= 5 && scoreDoc.doc < 5) { // 只在国家很少时显示详细信息
                 // 检查所有可能的字段名
                 String location = doc.get("LOCATION");
-                String country = doc.get("COUNTRY");
+                String country1 = doc.get("COUNTRY");
                 String countryField = doc.get("COUNTRY_FIELD");
                 log.info("详细记录{} - ID: {}, 姓名: {}, LOCATION字段: '{}', COUNTRY字段: '{}'",
-                    scoreDoc.doc, id, name, location, country);
+                    scoreDoc.doc, id, name, location, country1);
 
                 // 显示文档的所有字段名
                 List<IndexableField> fields = doc.getFields();
@@ -641,6 +681,7 @@ public class IdxService implements DisposableBean {
         int toIndex = fromIndex + pageSize;
         
         // 如果起始索引超出范围，返回空结果
+
         if (fromIndex >= total) {
             return new PageResult(new ArrayList<>(), total);
         }
