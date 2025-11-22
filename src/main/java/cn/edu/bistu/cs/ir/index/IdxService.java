@@ -1080,14 +1080,33 @@ public class IdxService implements DisposableBean {
                             // 读取JSON文件
                             JsonNode jsonNode = objectMapper.readTree(jsonPath.toFile());
 
-                            // 提取字段
-                            String id = jsonNode.has("id") ? jsonNode.get("id").asText() : "unknown";
-                            String name = jsonNode.has("name") ? jsonNode.get("name").asText() : "未知";
-                            String age = jsonNode.has("age") ? jsonNode.get("age").asText() : "未知";
-                            String image = jsonNode.has("image") ? jsonNode.get("image").asText() : "未提供";
-                            String location = jsonNode.has("location") ? jsonNode.get("location").asText() : "未知";
-                            String locationIcon = jsonNode.has("locationIcon") ? jsonNode.get("locationIcon").asText() : "未提供";
-                            String kg = jsonNode.has("kg") ? jsonNode.get("kg").asText() : "未知";
+                            // 🎯 修复：正确提取嵌套JSON结构中的字段
+                            String id = "unknown", name = "未知", age = "未知", image = "未提供", location = "未知", locationIcon = "未提供", kg = "未知";
+
+                            // 尝试从BLOG_INFO节点提取数据
+                            if (jsonNode.has("BLOG_INFO")) {
+                                JsonNode blogInfo = jsonNode.get("BLOG_INFO");
+                                id = blogInfo.has("id") ? blogInfo.get("id").asText() : "unknown";
+                                name = blogInfo.has("name") ? blogInfo.get("name").asText() : "未知";
+                                age = blogInfo.has("age") ? blogInfo.get("age").asText() : "未知";
+                                image = blogInfo.has("image") ? blogInfo.get("image").asText() : "未提供";
+                                location = blogInfo.has("location") ? blogInfo.get("location").asText() : "未知";
+                                locationIcon = blogInfo.has("locationIcon") ? blogInfo.get("locationIcon").asText() : "未提供";
+                                kg = blogInfo.has("kg") ? blogInfo.get("kg").asText() : "未知";
+
+                                log.debug("提取数据成功 - ID: {}, 姓名: {}, 国家: {}", id, name, location);
+                            } else {
+                                // 兼容性：尝试从顶级字段提取（用于可能的其他格式JSON文件）
+                                id = jsonNode.has("id") ? jsonNode.get("id").asText() : "unknown";
+                                name = jsonNode.has("name") ? jsonNode.get("name").asText() : "未知";
+                                age = jsonNode.has("age") ? jsonNode.get("age").asText() : "未知";
+                                image = jsonNode.has("image") ? jsonNode.get("image").asText() : "未提供";
+                                location = jsonNode.has("location") ? jsonNode.get("location").asText() : "未知";
+                                locationIcon = jsonNode.has("locationIcon") ? jsonNode.get("locationIcon").asText() : "未提供";
+                                kg = jsonNode.has("kg") ? jsonNode.get("kg").asText() : "未知";
+
+                                log.warn("JSON文件没有BLOG_INFO节点，使用顶级字段 - ID: {}", id);
+                            }
 
                             // 创建Lucene文档
                             Document doc = new Document();
@@ -1104,10 +1123,15 @@ public class IdxService implements DisposableBean {
 
                             processedCount.incrementAndGet();
 
-                            // 每1000条记录提交一次
+                            // 每1000条记录提交一次，并记录统计信息
                             if (processedCount.get() % 1000 == 0) {
                                 writer.commit();
                                 log.info("已处理{}条记录...", processedCount.get());
+                            }
+
+                            // 每处理100条记录，抽样统计一次国家分布
+                            if (processedCount.get() % 100 == 0) {
+                                log.info("抽样 - 当前记录: ID={}, 姓名={}, 国家={}", id, name, location);
                             }
 
                         } catch (Exception e) {
