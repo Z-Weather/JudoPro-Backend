@@ -1,12 +1,9 @@
 package cn.edu.bistu.cs.ir.index;
 
 import cn.edu.bistu.cs.ir.config.Config;
-import cn.edu.bistu.cs.ir.model.AgeGroup;
-import cn.edu.bistu.cs.ir.model.Continent;
-import cn.edu.bistu.cs.ir.model.CountryContinentMapping;
-import cn.edu.bistu.cs.ir.model.WeightClass;
-import cn.edu.bistu.cs.ir.model.Player;
+import cn.edu.bistu.cs.ir.model.*;
 import cn.edu.bistu.cs.ir.service.SearchCriteria;
+import cn.edu.bistu.cs.ir.utils.JsonUtils;
 import cn.edu.bistu.cs.ir.utils.StringUtil;
 import cn.edu.bistu.cs.ir.utils.PageResponse;
 import org.apache.lucene.analysis.Analyzer;
