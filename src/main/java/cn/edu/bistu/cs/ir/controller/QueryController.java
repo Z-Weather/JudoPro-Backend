@@ -795,47 +795,93 @@ public class QueryController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
 
+        log.info("🎯 QueryController模糊搜索接口 - 接收到请求: fuzzyKeyword='{}', similarity={}, page={}, size={}",
+                 fuzzyKeyword, similarity, page, size);
+
         try {
-            // 参数验证
+            // 参数验证和详细日志
             if (fuzzyKeyword == null || fuzzyKeyword.trim().isEmpty()) {
+                log.warn("⚠️ 模糊搜索关键词为空或空白");
                 return QueryResponse.genErr("模糊关键词不能为空");
             }
 
             if (similarity != null && (similarity < 0.0 || similarity > 1.0)) {
+                log.warn("⚠️ 相似度阈值参数异常: {}", similarity);
                 return QueryResponse.genErr("相似度阈值必须在0.0-1.0之间");
             }
 
-            if (page < 1) page = 1;
-            if (size < 1 || size > 100) size = 10;
+            if (page < 1) {
+                log.warn("⚠️ 页码参数异常: {}，调整为1", page);
+                page = 1;
+            }
 
-            // 执行模糊搜索（转换为从0开始的页码）
-            PageResponse<Player> playerResult = idxService.fuzzySearch(fuzzyKeyword, similarity, page - 1, size);
+            if (size < 1 || size > 100) {
+                log.warn("⚠️ 页大小参数异常: {}，调整为10", size);
+                size = 10;
+            }
+
+            log.info("✅ 参数验证通过，准备调用IdxService进行模糊搜索");
+
+            // 🔧 修复：直接传递原始页码，无需-1转换（IdxService内部已处理分页逻辑）
+            PageResponse<Player> playerResult = idxService.fuzzySearch(fuzzyKeyword, similarity, page, size);
+
+            log.info("📊 IdxService返回结果 - 实际返回{}条记录，总匹配数: {}",
+                     playerResult.getContent().size(), playerResult.getTotalElements());
 
             // 转换Player为Map格式以保持一致性
             List<Map<String, String>> results = new ArrayList<>();
-            for (Player player : playerResult.getContent()) {
-                Map<String, String> record = new HashMap<>();
-                record.put("ID", player.getId());
-                record.put("NAME", player.getName());
-                record.put("AGE", player.getAge());
-                record.put("IMAGE", player.getImage());
-                record.put("LOCATION", player.getLocation());
-                record.put("LOCATION_ICON", player.getLocationIcon() != null ? player.getLocationIcon() : "");
-                record.put("KG", player.getKg());
+            int successCount = 0;
+            int failCount = 0;
 
-                // 处理照片信息
-                String photosJson = "[]";
-                if (player.getPhotoEntity() != null) {
-                    try {
-                        photosJson = convertPhotoEntityToJson(player.getPhotoEntity());
-                    } catch (Exception e) {
-                        log.warn("转换照片信息失败: {}", e.getMessage());
-                        photosJson = "[]";
+            for (Player player : playerResult.getContent()) {
+                try {
+                    Map<String, String> record = new HashMap<>();
+
+                    // 🔧 添加空值检查，防止NPE
+                    record.put("ID", player.getId() != null ? player.getId() : "");
+                    record.put("NAME", player.getName() != null ? player.getName() : "");
+                    record.put("AGE", player.getAge() != null ? player.getAge() : "");
+                    record.put("IMAGE", player.getImage() != null ? player.getImage() : "");
+                    record.put("LOCATION", player.getLocation() != null ? player.getLocation() : "");
+                    record.put("LOCATION_ICON", player.getLocationIcon() != null ? player.getLocationIcon() : "");
+                    record.put("KG", player.getKg() != null ? player.getKg() : "");
+
+                    // 处理照片信息 - 增强错误处理
+                    String photosJson = "[]";
+                    if (player.getPhotoEntity() != null) {
+                        try {
+                            photosJson = convertPhotoEntityToJson(player.getPhotoEntity());
+                            // 🔧 修复：计算PhotoEntity中的总照片数量
+                            int totalPhotos = 0;
+                            PhotoEntity photoEntity = player.getPhotoEntity();
+                            if (photoEntity != null) {
+                                int spotlightPhotos = (photoEntity.getUnderTheSpotlights() != null) ? photoEntity.getUnderTheSpotlights().size() : 0;
+                                int eventPhotos = (photoEntity.getPhotos() != null) ? photoEntity.getPhotos().size() : 0;
+                                totalPhotos = spotlightPhotos + eventPhotos;
+                            }
+                            log.debug("📸 成功处理运动员照片信息 - ID: {}, 聚光灯照片: {}, 赛事照片: {}, 总照片数: {}",
+                                     player.getId(),
+                                     (photoEntity.getUnderTheSpotlights() != null) ? photoEntity.getUnderTheSpotlights().size() : 0,
+                                     (photoEntity.getPhotos() != null) ? photoEntity.getPhotos().size() : 0,
+                                     totalPhotos);
+                        } catch (Exception e) {
+                            log.warn("⚠️ 转换照片信息失败 - ID: {}, 错误: {}", player.getId(), e.getMessage());
+                            photosJson = "[]";
+                        }
                     }
+                    record.put("PHOTOS", photosJson);
+
+                    results.add(record);
+                    successCount++;
+
+                } catch (Exception e) {
+                    failCount++;
+                    log.error("💥 转换Player记录失败 - Player: {}, 错误: {}", player, e.getMessage());
+                    // 继续处理其他记录，不因单个失败影响整体
                 }
-                record.put("PHOTOS", photosJson);
-                results.add(record);
             }
+
+            log.info("🔄 数据转换完成 - 成功: {}, 失败: {}", successCount, failCount);
 
             // 构建分页响应对象
             PageResponse<Map<String, String>> pageResponse = PageResponse.of(
@@ -845,10 +891,13 @@ public class QueryController {
                 playerResult.getTotalElements()
             );
 
+            log.info("🏆 QueryController模糊搜索接口成功返回 - 当前页: {}, 页大小: {}, 返回记录数: {}, 总匹配数: {}",
+                    page, size, results.size(), playerResult.getTotalElements());
+
             return QueryResponse.genSucc("模糊搜索成功", pageResponse);
 
         } catch (Exception e) {
-            log.error("模糊匹配检索失败", e);
+            log.error("💥 QueryController模糊搜索接口异常 - 关键词: '{}', 错误: {}", fuzzyKeyword, e.getMessage(), e);
             return QueryResponse.genErr("模糊搜索失败：" + e.getMessage());
         }
     }

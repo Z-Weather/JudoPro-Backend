@@ -715,72 +715,108 @@ public class IdxService implements DisposableBean {
      * @return 分页结果
      */
     public PageResponse<Player> fuzzySearch(String fuzzyKeyword, Double similarity, int page, int size) {
-        log.info("IdxService模糊搜索 - fuzzyKeyword: {}, similarity: {}, page: {}, size: {}", fuzzyKeyword, similarity, page, size);
+        log.info("🎯 IdxService模糊搜索开始 - 关键词: '{}', 相似度阈值: {}, 页码: {}, 页大小: {}", fuzzyKeyword, similarity, page, size);
+
+        // 参数验证和日志记录
+        if (fuzzyKeyword == null || fuzzyKeyword.trim().isEmpty()) {
+            log.warn("⚠️ 模糊搜索关键词为空，返回空结果");
+            return PageResponse.of(new ArrayList<>(), page, size, 0);
+        }
+
+        if (page < 1) {
+            log.warn("⚠️ 页码参数异常: {}，调整为1", page);
+            page = 1;
+        }
+
+        if (size < 1) {
+            log.warn("⚠️ 页大小参数异常: {}，调整为10", size);
+            size = 10;
+        }
 
         try {
             IndexReader reader = DirectoryReader.open(writer);
             IndexSearcher searcher = new IndexSearcher(reader);
 
+            log.info("📚 索引读取器打开成功，索引文档总数: {}", reader.numDocs());
+
             // 构建模糊查询
             BooleanQuery.Builder queryBuilder = new BooleanQuery.Builder();
+            String searchTerm = fuzzyKeyword.toLowerCase().trim();
 
-            // 1. 模糊查询 (FuzzyQuery) - 支持拼写错误和相似词 - 修正字段名！
-            FuzzyQuery nameFuzzyQuery = new FuzzyQuery(new Term("NAME", fuzzyKeyword.toLowerCase()), 2);
-            FuzzyQuery locationFuzzyQuery = new FuzzyQuery(new Term("LOCATION", fuzzyKeyword.toLowerCase()), 2);
+            log.info("🔍 构建多策略模糊查询 - 搜索词: '{}'", searchTerm);
 
-            log.info("构建FuzzyQuery - NAME: {}, LOCATION: {}", fuzzyKeyword.toLowerCase(), fuzzyKeyword.toLowerCase());
-
-            // 2. 通配符查询 (WildcardQuery) - 支持*和?通配符 - 修正字段名！
-            WildcardQuery nameWildcardQuery = new WildcardQuery(new Term("NAME", "*" + fuzzyKeyword.toLowerCase() + "*"));
-            WildcardQuery locationWildcardQuery = new WildcardQuery(new Term("LOCATION", "*" + fuzzyKeyword.toLowerCase() + "*"));
-
-            // 3. 前缀查询 (PrefixQuery) - 支持前缀匹配 - 修正字段名！
-            PrefixQuery namePrefixQuery = new PrefixQuery(new Term("NAME", fuzzyKeyword.toLowerCase()));
-            PrefixQuery locationPrefixQuery = new PrefixQuery(new Term("LOCATION", fuzzyKeyword.toLowerCase()));
-            
-            // 组合查询
+            // 1. 模糊查询 (FuzzyQuery) - 支持拼写错误和相似词
+            FuzzyQuery nameFuzzyQuery = new FuzzyQuery(new Term("NAME", searchTerm), 2);
+            FuzzyQuery locationFuzzyQuery = new FuzzyQuery(new Term("LOCATION", searchTerm), 2);
             queryBuilder.add(nameFuzzyQuery, BooleanClause.Occur.SHOULD);
             queryBuilder.add(locationFuzzyQuery, BooleanClause.Occur.SHOULD);
+            log.info("✅ FuzzyQuery构建完成 - NAME: '{}', LOCATION: '{}'", searchTerm, searchTerm);
+
+            // 2. 通配符查询 (WildcardQuery) - 支持*和?通配符
+            WildcardQuery nameWildcardQuery = new WildcardQuery(new Term("NAME", "*" + searchTerm + "*"));
+            WildcardQuery locationWildcardQuery = new WildcardQuery(new Term("LOCATION", "*" + searchTerm + "*"));
             queryBuilder.add(nameWildcardQuery, BooleanClause.Occur.SHOULD);
             queryBuilder.add(locationWildcardQuery, BooleanClause.Occur.SHOULD);
+            log.info("✅ WildcardQuery构建完成 - NAME: '*{}*', LOCATION: '*{}*'", searchTerm, searchTerm);
+
+            // 3. 前缀查询 (PrefixQuery) - 支持前缀匹配
+            PrefixQuery namePrefixQuery = new PrefixQuery(new Term("NAME", searchTerm));
+            PrefixQuery locationPrefixQuery = new PrefixQuery(new Term("LOCATION", searchTerm));
             queryBuilder.add(namePrefixQuery, BooleanClause.Occur.SHOULD);
             queryBuilder.add(locationPrefixQuery, BooleanClause.Occur.SHOULD);
-            
+            log.info("✅ PrefixQuery构建完成 - NAME: '{}', LOCATION: '{}'", searchTerm, searchTerm);
+
             // 4. 如果提供了相似度阈值，调整查询权重
             if (similarity != null && similarity > 0.0) {
-                // 使用相似度作为权重调整因子
                 float boost = similarity.floatValue();
                 BoostQuery boostedNameQuery = new BoostQuery(nameFuzzyQuery, boost);
                 BoostQuery boostedLocationQuery = new BoostQuery(locationFuzzyQuery, boost);
-                
                 queryBuilder.add(boostedNameQuery, BooleanClause.Occur.SHOULD);
                 queryBuilder.add(boostedLocationQuery, BooleanClause.Occur.SHOULD);
+                log.info("🔥 相似度权重应用 - 权重值: {}", boost);
             }
-            
+
             BooleanQuery query = queryBuilder.build();
-            
+            log.info("🎯 最终查询语句: {}", query.toString());
+
+            // 🔧 修复分页逻辑 - 计算正确的起始位置和总数
+            int start = (page - 1) * size;  // 修复：第1页从0开始
+            int totalHitsToRetrieve = start + size;  // 修复：获取足够的结果用于分页
+
+            log.info("📄 分页计算 - 起始位置: {}, 需要获取结果数: {}", start, totalHitsToRetrieve);
+
             // 执行搜索
-            TopDocs topDocs = searcher.search(query, page * size);
-            
-            // 分页处理
-            int start = page * size;
-            int end = Math.min(start + size, topDocs.scoreDocs.length);
-            
+            TopDocs topDocs = searcher.search(query, totalHitsToRetrieve);
+            log.info("🎉 搜索完成 - 总命中数: {}, 实际获取文档数: {}", topDocs.totalHits.value, topDocs.scoreDocs.length);
+
+            // 分页处理 - 从起始位置开始提取数据
+            int actualStart = Math.max(0, start);
+            int actualEnd = Math.min(actualStart + size, topDocs.scoreDocs.length);
+
+            log.info("✂️ 结果切片 - 实际起始: {}, 实际结束: {}", actualStart, actualEnd);
+
             List<Player> players = new ArrayList<>();
-            for (int i = start; i < end; i++) {
+            for (int i = actualStart; i < actualEnd; i++) {
                 ScoreDoc scoreDoc = topDocs.scoreDocs[i];
                 Document doc = searcher.doc(scoreDoc.doc);
                 Player player = documentToPlayer(doc);
-                players.add(player);
+
+                if (player != null) {
+                    players.add(player);
+                    log.debug("👤 成功解析运动员数据 - ID: {}, 姓名: {}", player.getId(), player.getName());
+                } else {
+                    log.warn("⚠️ 文档转换为Player对象失败，文档ID: {}", scoreDoc.doc);
+                }
             }
-            
+
             reader.close();
-            
+
+            log.info("🏆 模糊搜索成功完成 - 返回{}条记录，总匹配数: {}", players.size(), topDocs.totalHits.value);
             return PageResponse.of(players, page, size, topDocs.totalHits.value);
-            
+
         } catch (Exception e) {
-            log.error("模糊匹配检索失败", e);
-            throw new RuntimeException("模糊匹配检索失败: " + e.getMessage());
+            log.error("💥 模糊搜索执行失败 - 关键词: '{}', 错误: {}", fuzzyKeyword, e.getMessage(), e);
+            throw new RuntimeException("模糊搜索执行失败: " + e.getMessage(), e);
         }
     }
     
@@ -1024,12 +1060,45 @@ public class IdxService implements DisposableBean {
      * @return Player对象
      */
     private Player documentToPlayer(Document doc) {
+        log.debug("🔍 开始转换Document到Player对象 - 文档ID: {}", doc.get("ID"));
+
         Player player = new Player();
         player.setId(doc.get("ID"));
         player.setName(doc.get("NAME"));
-        player.setLocation(doc.get("COUNTRY"));
-        player.setAge(doc.get("AGE"));
-        player.setKg(doc.get("WEIGHT"));
+
+        // 🔧 修复：使用正确的字段名并添加详细日志
+        String location = doc.get("LOCATION");
+        String age = doc.get("AGE");
+        String kg = doc.get("KG");
+        String image = doc.get("IMAGE");
+        String locationIcon = doc.get("LOCATION_ICON");
+
+        player.setLocation(location);
+        player.setAge(age);
+        player.setKg(kg);
+        player.setImage(image);
+        player.setLocationIcon(locationIcon);
+
+        log.debug("📋 字段提取结果 - ID: {}, NAME: {}, LOCATION: {}, AGE: {}, KG: {}, IMAGE存在: {}, LOCATION_ICON存在: {}",
+                 doc.get("ID"), doc.get("NAME"), location, age, kg, image != null, locationIcon != null);
+
+        // 🔧 新增：处理PHOTOS字段
+        String photosJson = doc.get("PHOTOS");
+        if (photosJson != null && !photosJson.trim().isEmpty() && !photosJson.equals("[]")) {
+            try {
+                PhotoEntity photoEntity = JsonUtils.fromJson(photosJson, PhotoEntity.class);
+                player.setPhotoEntity(photoEntity);
+                log.debug("📸 成功解析PHOTOS字段 - ID: {}", doc.get("ID"));
+            } catch (Exception e) {
+                log.warn("⚠️ 解析PHOTOS字段失败 - ID: {}, 错误: {}", doc.get("ID"), e.getMessage());
+                player.setPhotoEntity(null);
+            }
+        } else {
+            log.debug("📷 PHOTOS字段为空或未设置 - ID: {}", doc.get("ID"));
+            player.setPhotoEntity(null);
+        }
+
+        log.debug("✅ Document转换完成 - Player对象: {}", player);
         return player;
     }
 
