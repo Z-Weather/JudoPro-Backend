@@ -65,6 +65,9 @@ import java.util.TreeSet;
 import java.util.stream.Stream;
 import java.util.stream.Collectors;
 import java.io.FileReader;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 面向<a href="https://lucene.apache.org/">Lucene</a>
@@ -1059,6 +1062,111 @@ public class IdxService implements DisposableBean {
         player.setAge(doc.get("AGE"));
         player.setKg(doc.get("WEIGHT"));
         return player;
+    }
+
+    /**
+     * 🎯 新增：从workspace重建索引以包含所有数据
+     * @return 重建的记录数
+     */
+    public int rebuildIndexFromWorkspace() {
+        if (writer == null) {
+            log.error("IndexWriter未初始化，无法重建索引");
+            return -1;
+        }
+
+        log.info("=== 开始从workspace重建索引 ===");
+        Path crawlerPath = Paths.get(config.getCrawler());
+
+        if (!Files.exists(crawlerPath) || !Files.isDirectory(crawlerPath)) {
+            log.error("Workspace目录不存在或不是目录: {}", config.getCrawler());
+            return -1;
+        }
+
+        try {
+            // 先清空现有索引
+            log.info("清空现有索引...");
+            writer.deleteAll();
+            writer.commit();
+            log.info("索引已清空");
+
+            ObjectMapper objectMapper = new ObjectMapper();
+            AtomicInteger processedCount = new AtomicInteger(0);
+            AtomicInteger errorCount = new AtomicInteger(0);
+
+            // 遍历所有JSON文件并重建索引
+            try (Stream<Path> jsonFiles = Files.walk(crawlerPath)
+                .filter(path -> Files.isRegularFile(path))
+                .filter(path -> path.toString().endsWith(".json"))) {
+
+                long totalFiles = jsonFiles.count();
+                log.info("找到{}个JSON文件，开始重建索引...", totalFiles);
+
+                // 重新打开流来处理文件
+                try (Stream<Path> jsonFiles2 = Files.walk(crawlerPath)
+                    .filter(path -> Files.isRegularFile(path))
+                    .filter(path -> path.toString().endsWith(".json"))) {
+
+                    jsonFiles2.forEach(jsonPath -> {
+                        try {
+                            // 读取JSON文件
+                            JsonNode jsonNode = objectMapper.readTree(jsonPath.toFile());
+
+                            // 提取字段
+                            String id = jsonNode.has("id") ? jsonNode.get("id").asText() : "unknown";
+                            String name = jsonNode.has("name") ? jsonNode.get("name").asText() : "未知";
+                            String age = jsonNode.has("age") ? jsonNode.get("age").asText() : "未知";
+                            String image = jsonNode.has("image") ? jsonNode.get("image").asText() : "未提供";
+                            String location = jsonNode.has("location") ? jsonNode.get("location").asText() : "未知";
+                            String locationIcon = jsonNode.has("locationIcon") ? jsonNode.get("locationIcon").asText() : "未提供";
+                            String kg = jsonNode.has("kg") ? jsonNode.get("kg").asText() : "未知";
+
+                            // 创建Lucene文档
+                            Document doc = new Document();
+                            doc.add(new StringField("ID", id, Field.Store.YES));
+                            doc.add(new TextField("NAME", name, Field.Store.YES));
+                            doc.add(new TextField("AGE", age, Field.Store.YES));
+                            doc.add(new TextField("IMAGE", image, Field.Store.YES));
+                            doc.add(new TextField("LOCATION", location, Field.Store.YES));
+                            doc.add(new TextField("LOCATION_ICON", locationIcon, Field.Store.YES));
+                            doc.add(new TextField("KG", kg, Field.Store.YES));
+
+                            // 添加到索引
+                            writer.updateDocument(new Term("ID", id), doc);
+
+                            processedCount.incrementAndGet();
+
+                            // 每1000条记录提交一次
+                            if (processedCount.get() % 1000 == 0) {
+                                writer.commit();
+                                log.info("已处理{}条记录...", processedCount.get());
+                            }
+
+                        } catch (Exception e) {
+                            log.error("处理JSON文件失败: {}, 错误: {}", jsonPath, e.getMessage());
+                            errorCount.incrementAndGet();
+                        }
+                    });
+                }
+            }
+
+            // 最终提交
+            writer.commit();
+            log.info("=== 索引重建完成 ===");
+            log.info("总共处理: {} 条记录", processedCount.get());
+            log.info("处理失败: {} 条记录", errorCount.get());
+            log.info("成功重建: {} 条记录", processedCount.get() - errorCount.get());
+
+            return processedCount.get() - errorCount.get();
+
+        } catch (Exception e) {
+            log.error("重建索引过程中发生错误: {}", e.getMessage(), e);
+            try {
+                writer.rollback();
+            } catch (IOException ioException) {
+                log.error("回滚索引失败: {}", ioException.getMessage());
+            }
+            return -1;
+        }
     }
 
     @Override

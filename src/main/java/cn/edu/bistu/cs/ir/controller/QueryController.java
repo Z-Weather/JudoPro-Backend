@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -1037,6 +1038,37 @@ public class QueryController {
         } catch (Exception e) {
             log.error("智能搜索失败", e);
             return QueryResponse.genErr("智能搜索失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 🎯 新增：从workspace重建索引
+     *
+     * @return 重建结果
+     */
+    @PostMapping("/rebuild-index")
+    public QueryResponse<Map<String, Object>> rebuildIndex() {
+        try {
+            log.info("=== 收到重建索引请求 ===");
+
+            // 执行索引重建
+            int rebuiltRecords = idxService.rebuildIndexFromWorkspace();
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("rebuiltRecords", rebuiltRecords);
+            result.put("message", rebuiltRecords > 0 ? "索引重建成功" : "索引重建失败");
+
+            if (rebuiltRecords > 0) {
+                log.info("索引重建完成，成功重建{}条记录", rebuiltRecords);
+                return QueryResponse.genSucc("索引重建成功", result);
+            } else {
+                log.error("索引重建失败，返回记录数: {}", rebuiltRecords);
+                return QueryResponse.genErr("索引重建失败，请检查日志");
+            }
+
+        } catch (Exception e) {
+            log.error("重建索引API调用失败", e);
+            return QueryResponse.genErr("重建索引失败：" + e.getMessage());
         }
     }
 }
