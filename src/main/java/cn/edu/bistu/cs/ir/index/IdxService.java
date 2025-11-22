@@ -15,7 +15,10 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.document.*;
 import org.apache.lucene.document.DoublePoint;
+import org.apache.lucene.document.Field;
 import org.apache.lucene.document.IntPoint;
+import org.apache.lucene.document.StringField;
+import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.*;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -441,40 +444,6 @@ public class IdxService implements DisposableBean {
                     log.warn("⚠️ 警告：workspace目��中没有JSON文件，索引可能过时");
                 } else {
                     log.info("✅ JSON文件数量({})与索引记录数({})基本匹配", totalJsonCount, allDocs.totalHits.value);
-
-                    // 🎯 抽样检查JSON文件的实际内容
-                    log.info("=== 调试：抽样检查JSON文件中的国家信息 ===");
-                    try (Stream<Path> jsonFiles = Files.walk(crawlerPath)
-                        .filter(path -> Files.isRegularFile(path))
-                        .filter(path -> path.toString().endsWith(".json"))) {
-
-                        List<String> sampleCountries = jsonFiles
-                            .limit(5) // 只检查前5个文件
-                            .map(jsonPath -> {
-                                try {
-                                    String content = new String(Files.readAllBytes(jsonPath));
-                                    // 简单搜索location字段
-                                    if (content.contains("location")) {
-                                        int start = content.indexOf("\"location\":");
-                                        if (start != -1) {
-                                            start = content.indexOf("\"", start + 11) + 1;
-                                            int end = content.indexOf("\"", start);
-                                            if (end != -1 && start > 0) {
-                                                return content.substring(start, end);
-                                            }
-                                        }
-                                    }
-                                    return "未知";
-                                } catch (Exception e) {
-                                    return "读取失败";
-                                }
-                            })
-                            .collect(Collectors.toList());
-
-                        log.info("抽样5个JSON文件中的国家: {}", sampleCountries);
-                    } catch (Exception e) {
-                        log.warn("抽样检查JSON文件失败: {}", e.getMessage());
-                    }
                 }
             }
         } catch (Exception e) {
