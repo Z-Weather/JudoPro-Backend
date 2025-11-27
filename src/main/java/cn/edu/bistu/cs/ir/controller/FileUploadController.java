@@ -56,7 +56,8 @@ public class FileUploadController {
         } else if (principal instanceof String) {
             // 如果是用户名，需要通过UserService查找用户ID
             // 这里暂时抛出异常，需要根据实际认证实现调整
-            throw new IllegalStateException("无法获取用户ID，请检查认证配置");
+            return getOrCreateTestUser(); // 临时使用测试用户逻辑
+            //throw new IllegalStateException("无法获取用户ID，请检查认证配置");
         }
         
         throw new IllegalStateException("无效的用户认证信息");
