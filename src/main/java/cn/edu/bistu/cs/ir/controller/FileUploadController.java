@@ -18,6 +18,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,25 +43,71 @@ public class FileUploadController {
     private UserService userService;
     
     /**
-     * 获取当前登录用户ID
+     * 获取当前登录用户ID - 支持Session认证和Spring Security认证
      */
-    private Long getCurrentUserId(Authentication authentication) {
-        if (authentication == null || authentication.getPrincipal() == null) {
-            log.warn("⚠️ 用户未登录，尝试查找或创建测试用户");
-            return getOrCreateTestUser();
+    private Long getCurrentUserId(Authentication authentication, HttpServletRequest request) {
+        log.info("🔍 开始获取当前用户ID...");
+
+        // 步骤1: 首先尝试从Session中获取用户ID（登录时设置的）
+        Long userIdFromSession = (Long) request.getSession().getAttribute("userId");
+        if (userIdFromSession != null) {
+            log.info("✅ 从Session获取用户ID成功: {}", userIdFromSession);
+            return userIdFromSession;
+        } else {
+            log.warn("❌ Session中未找到userId，检查Session信息:");
+            log.warn("   - Session ID: {}", request.getSession().getId());
+            log.warn("   - Session中存在的属性: {}", request.getSession().getAttributeNames().toString());
+
+            // 检查Session中是否有currentUser对象
+            Object currentUser = request.getSession().getAttribute("currentUser");
+            if (currentUser != null) {
+                log.warn("   - currentUser对象: {}", currentUser.getClass().getName());
+                if (currentUser instanceof cn.edu.bistu.cs.ir.model.User) {
+                    cn.edu.bistu.cs.ir.model.User sessionUser = (cn.edu.bistu.cs.ir.model.User) currentUser;
+                    log.warn("   - currentUser用户ID: {}", sessionUser.getId());
+                    return sessionUser.getId();
+                }
+            }
         }
-        
-        Object principal = authentication.getPrincipal();
-        if (principal instanceof User) {
-            return ((User) principal).getId();
-        } else if (principal instanceof String) {
-            // 如果是用户名，需要通过UserService查找用户ID
-            // 这里暂时抛出异常，需要根据实际认证实现调整
-            return getOrCreateTestUser(); // 临时使用测试用户逻辑
-            //throw new IllegalStateException("无法获取用户ID，请检查认证配置");
+
+        // 步骤2: 如果Session中没有，尝试从Spring Security获取
+        log.info("🔄 尝试从Spring Security获取用户信息...");
+        log.info("   - Authentication对象: {}", authentication);
+        log.info("   - Authentication是否为null: {}", authentication == null);
+
+        if (authentication != null) {
+            log.info("   - Principal: {}", authentication.getPrincipal());
+            log.info("   - Principal是否为null: {}", authentication.getPrincipal() == null);
+            log.info("   - Principal类型: {}", authentication.getPrincipal() != null ? authentication.getPrincipal().getClass().getName() : "null");
+
+            Object principal = authentication.getPrincipal();
+            if (principal != null) {
+                if (principal instanceof cn.edu.bistu.cs.ir.model.User) {
+                    Long userId = ((cn.edu.bistu.cs.ir.model.User) principal).getId();
+                    log.info("✅ 从Spring Security获取用户ID成功: {}", userId);
+                    return userId;
+                } else if (principal instanceof String) {
+                    log.warn("⚠️ Principal是字符串类型: {}", principal);
+                    // 尝试通过用户名查找用户
+                    try {
+                        Optional<cn.edu.bistu.cs.ir.model.User> userOpt = userService.findByUsername((String) principal);
+                        if (userOpt.isPresent()) {
+                            Long userId = userOpt.get().getId();
+                            log.info("✅ 通过用户名查找获取用户ID成功: {}", userId);
+                            return userId;
+                        } else {
+                            log.warn("❌ 通过用户名未找到用户: {}", principal);
+                        }
+                    } catch (Exception e) {
+                        log.error("❌ 通过用户名查找用户时出错: {}", e.getMessage(), e);
+                    }
+                }
+            }
         }
-        
-        throw new IllegalStateException("无效的用户认证信息");
+
+        // 步骤3: 都没有的话，使用测试用户
+        log.warn("🚨 所有认证方式都失败，使用测试用户逻辑");
+        return getOrCreateTestUser();
     }
 
     /**
@@ -96,7 +143,8 @@ public class FileUploadController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam(value = "category", required = false, defaultValue = "general") String category,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
 
         log.info("=== 图片上传API调用 ===");
         log.info("文件名: {}", file != null ? file.getOriginalFilename() : "null");
@@ -115,7 +163,7 @@ public class FileUploadController {
             }
 
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             log.info("当前用户ID: {}", userId);
 
             // 上传文件到服务器
@@ -172,13 +220,14 @@ public class FileUploadController {
     public ResponseEntity<Map<String, Object>> uploadVideo(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "description", required = false) String description,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
 
         Map<String, Object> response = new HashMap<>();
 
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
 
             // 上传文件到服务器
             String fileUrl = fileUploadUtils.uploadVideo(file);
@@ -263,13 +312,14 @@ public class FileUploadController {
     @DeleteMapping("/delete/{fileId}")
     public ResponseEntity<Map<String, Object>> deleteFile(
             @PathVariable Long fileId,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 删除用户文件
             boolean deleted = userFileService.deleteUserFile(userId, fileId);
@@ -304,13 +354,14 @@ public class FileUploadController {
     @DeleteMapping("/delete")
     public ResponseEntity<Map<String, Object>> deleteFileByUrl(
             @RequestParam("url") String fileUrl,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 通过URL删除用户文件
             boolean deleted = userFileService.deleteUserFileByUrl(userId, fileUrl);
@@ -345,13 +396,14 @@ public class FileUploadController {
     @PostMapping("/upload/images")
     public ResponseEntity<Map<String, Object>> uploadImages(
             @RequestParam("files") MultipartFile[] files,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             if (files == null || files.length == 0) {
                 response.put("success", false);
@@ -423,13 +475,14 @@ public class FileUploadController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String filename,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 创建分页对象
             Pageable pageable = PageRequest.of(page, size);
@@ -477,13 +530,14 @@ public class FileUploadController {
     @GetMapping("/detail/{fileId}")
     public ResponseEntity<Map<String, Object>> getFileDetail(
             @PathVariable Long fileId,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 获取文件详情
             UserFile userFile = userFileService.getUserFile(userId, fileId).orElse(null);
@@ -519,13 +573,14 @@ public class FileUploadController {
     @GetMapping("/download/{fileId}")
     public ResponseEntity<Map<String, Object>> downloadFile(
             @PathVariable Long fileId,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 增加下载次数并获取文件信息
             boolean success = userFileService.incrementDownloadCount(fileId);
@@ -572,13 +627,14 @@ public class FileUploadController {
      */
     @GetMapping("/statistics")
     public ResponseEntity<Map<String, Object>> getUserFileStatistics(
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 获取用户文件统计信息
             UserFileService.UserFileStatistics statistics = userFileService.getUserFileStatistics(userId);
@@ -607,13 +663,14 @@ public class FileUploadController {
      */
     @GetMapping("/recent")
     public ResponseEntity<Map<String, Object>> getRecentFiles(
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 获取最近上传的文件
             List<UserFile> recentFiles = userFileService.getRecentFiles(userId);
@@ -642,13 +699,14 @@ public class FileUploadController {
      */
     @GetMapping("/popular")
     public ResponseEntity<Map<String, Object>> getPopularFiles(
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 获取热门下载文件
             List<UserFile> popularFiles = userFileService.getPopularFiles(userId);
@@ -679,13 +737,14 @@ public class FileUploadController {
     public ResponseEntity<Map<String, Object>> updateFileDescription(
             @PathVariable Long fileId,
             @RequestParam String description,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
             // 获取当前用户ID
-            Long userId = getCurrentUserId(authentication);
+            Long userId = getCurrentUserId(authentication, request);
             
             // 更新文件描述
             boolean updated = userFileService.updateFileDescription(userId, fileId, description);
