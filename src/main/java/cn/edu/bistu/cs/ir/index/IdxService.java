@@ -64,6 +64,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.stream.Collectors;
 import java.io.FileReader;
@@ -233,12 +235,58 @@ public class IdxService implements DisposableBean {
         IndexSearcher searcher = new IndexSearcher(reader);
         log.info("📊 索引总文档数: {}", reader.numDocs());
 
-        // 构建年龄范围查询
-        Query query = IntPoint.newRangeQuery("AGE_NUM", ageGroup.getMinAge(), ageGroup.getMaxAge());
-        log.info("🎯 构建查询条件: AGE_NUM between {} and {}", ageGroup.getMinAge(), ageGroup.getMaxAge());
+        // 先检查AGE_NUM字段是否存在
+        boolean useAgeNumField = false;
+        try {
+            Query testQuery = IntPoint.newRangeQuery("AGE_NUM", 0, 200);
+            TopDocs testResult = searcher.search(testQuery, 1);
+            useAgeNumField = true;
+            log.info("✅ AGE_NUM字段存在，将使用数字字段查询");
+        } catch (Exception e) {
+            log.warn("⚠️ AGE_NUM字段不存在或查询失败，将尝试使用AGE字段: {}", e.getMessage());
+            useAgeNumField = false;
+        }
+
+        Query query;
+        if (useAgeNumField) {
+            // 使用AGE_NUM字段查询
+            query = IntPoint.newRangeQuery("AGE_NUM", ageGroup.getMinAge(), ageGroup.getMaxAge());
+            log.info("🎯 构建查询条件: AGE_NUM between {} and {}", ageGroup.getMinAge(), ageGroup.getMaxAge());
+        } else {
+            // 使用AGE字符串字段查询，需要手动过滤
+            query = new MatchAllDocsQuery();
+            log.info("🎯 将使用AGE字符串字段查询，手动过滤年龄范围 {}-{}", ageGroup.getMinAge(), ageGroup.getMaxAge());
+        }
 
         // 先获取总记录数
-        TopDocs totalDocs = searcher.search(query, Integer.MAX_VALUE);
+        TopDocs totalDocs;
+        if (useAgeNumField) {
+            totalDocs = searcher.search(query, Integer.MAX_VALUE);
+        } else {
+            // 对于AGE字段，需要获取所有文档然后手动过滤
+            TopDocs allDocs = searcher.search(new MatchAllDocsQuery(), Integer.MAX_VALUE);
+            List<ScoreDoc> filteredDocs = new ArrayList<>();
+            for (ScoreDoc scoreDoc : allDocs.scoreDocs) {
+                Document doc = searcher.doc(scoreDoc.doc);
+                IndexableField ageField = doc.getField("AGE");
+                if (ageField != null) {
+                    try {
+                        String ageStr = ageField.stringValue();
+                        if (ageStr != null && !ageStr.isEmpty()) {
+                            int age = Integer.parseInt(ageStr.trim());
+                            if (age >= ageGroup.getMinAge() && age <= ageGroup.getMaxAge()) {
+                                filteredDocs.add(scoreDoc);
+                            }
+                        }
+                    } catch (NumberFormatException e) {
+                        // 忽略无效的年龄值
+                    }
+                }
+            }
+            // 创建新的TopDocs对象
+            totalDocs = new TopDocs(allDocs.totalHits, filteredDocs.toArray(new ScoreDoc[0]));
+        }
+
         long total = totalDocs.totalHits.value;
         log.info("📈 查询结果总记录数: {}", total);
 
@@ -251,15 +299,81 @@ public class IdxService implements DisposableBean {
             TopDocs allDocs = searcher.search(allQuery, 100);
             log.info("🔢 总共查询到 {} 条记录用于年龄分析", allDocs.totalHits.value);
 
+            // 先检查第一个文档的所有字段，确认字段名称
+            if (allDocs.scoreDocs != null && allDocs.scoreDocs.length > 0) {
+                Document firstDoc = searcher.doc(allDocs.scoreDocs[0].doc);
+                log.info("🔍 检查文档中的所有字段:");
+                for (IndexableField field : firstDoc.getFields()) {
+                    log.info("   - 字段名: {}, 值: {}, 类型: {}",
+                        field.name(),
+                        field.stringValue(),
+                        field.getClass().getSimpleName());
+                }
+            }
+
             // 统计年龄分布
             Map<Integer, Integer> ageDistribution = new HashMap<>();
+            int hasAgeNumCount = 0;
+            int hasAgeCount = 0;
+            int totalAgeFields = 0;
+
             for (ScoreDoc scoreDoc : allDocs.scoreDocs) {
                 Document doc = searcher.doc(scoreDoc.doc);
-                IndexableField ageField = doc.getField("AGE_NUM");
-                if (ageField != null) {
-                    int age = ageField.numericValue().intValue();
-                    ageDistribution.put(age, ageDistribution.getOrDefault(age, 0) + 1);
+
+                // 检查AGE_NUM字段
+                IndexableField ageNumField = doc.getField("AGE_NUM");
+                if (ageNumField != null) {
+                    hasAgeNumCount++;
+                    try {
+                        int age = ageNumField.numericValue().intValue();
+                        ageDistribution.put(age, ageDistribution.getOrDefault(age, 0) + 1);
+                    } catch (Exception e) {
+                        log.warn("⚠️ AGE_NUM字段值解析失败: {}", e.getMessage());
+                    }
                 }
+
+                // 检查AGE字段（字符串类型）
+                IndexableField ageField = doc.getField("AGE");
+                if (ageField != null) {
+                    hasAgeCount++;
+                    totalAgeFields++;
+                }
+
+                // 检查是否有任一年龄相关字段
+                if (ageNumField != null || ageField != null) {
+                    totalAgeFields++;
+                }
+            }
+
+            log.info("📊 字段统计结果:");
+            log.info("   - 包含AGE_NUM字段的文档数: {}", hasAgeNumCount);
+            log.info("   - 包含AGE字段的文档数: {}", hasAgeCount);
+            log.info("   - 包含任一年龄字段的文档数: {}", totalAgeFields);
+            log.info("   - 分析的总文档数: {}", allDocs.scoreDocs.length);
+
+            // 如果AGE_NUM字段完全不存在，尝试使用AGE字段
+            if (hasAgeNumCount == 0 && hasAgeCount > 0) {
+                log.warn("⚠️ AGE_NUM字段不存在，但AGE字段存在！尝试使用AGE字段进行年龄分析...");
+                ageDistribution.clear();
+
+                for (ScoreDoc scoreDoc : allDocs.scoreDocs) {
+                    Document doc = searcher.doc(scoreDoc.doc);
+                    IndexableField ageField = doc.getField("AGE");
+                    if (ageField != null) {
+                        String ageStr = ageField.stringValue();
+                        try {
+                            if (ageStr != null && !ageStr.isEmpty()) {
+                                int age = parseAgeFromString(ageStr);
+                                if (age > 0) {
+                                    ageDistribution.put(age, ageDistribution.getOrDefault(age, 0) + 1);
+                                }
+                            }
+                        } catch (Exception e) {
+                            log.warn("⚠️ AGE字段值解析失败: {} -> {}", ageStr, e.getMessage());
+                        }
+                    }
+                }
+                log.info("✅ 使用AGE字段解析完成，年龄分布: {}", ageDistribution);
             }
 
             log.info("📊 年龄分布统计: {}", ageDistribution);
@@ -281,26 +395,58 @@ public class IdxService implements DisposableBean {
             log.info("🚨 特别检查: 15-17岁年龄段的人数 = {}",
                 ageDistribution.getOrDefault(15, 0) + ageDistribution.getOrDefault(16, 0) + ageDistribution.getOrDefault(17, 0));
         }
-        
+
         // 计算分页参数
         int fromIndex = (pageNo - 1) * pageSize;
         int toIndex = fromIndex + pageSize;
-        
+
         // 如果起始索引超出范围，返回空结果
         if (fromIndex >= total) {
             return new PageResult(new ArrayList<>(), total);
         }
-        
-        // 在Lucene层面进行分页查询
-        TopDocs docs = searcher.search(query, toIndex);
-        ScoreDoc[] hits = docs.scoreDocs;
-        
+
         List<Document> results = new ArrayList<>();
-        // 只取当前页的数据
-        for (int i = fromIndex; i < Math.min(hits.length, toIndex); i++) {
-            results.add(searcher.doc(hits[i].doc));
+
+        if (useAgeNumField) {
+            // 使用AGE_NUM字段的常规Lucene查询
+            TopDocs docs = searcher.search(query, toIndex);
+            ScoreDoc[] hits = docs.scoreDocs;
+
+            // 只取当前页的数据
+            for (int i = fromIndex; i < Math.min(hits.length, toIndex); i++) {
+                results.add(searcher.doc(hits[i].doc));
+            }
+        } else {
+            // 使用AGE字段的手动过滤查询
+            log.info("🔄 使用AGE字段进行分页查询，从第{}条开始，取{}条", fromIndex, pageSize);
+
+            // 重新获取所有符合条件的文档
+            TopDocs allDocs = searcher.search(new MatchAllDocsQuery(), Integer.MAX_VALUE);
+            List<ScoreDoc> filteredDocs = new ArrayList<>();
+
+            for (ScoreDoc scoreDoc : allDocs.scoreDocs) {
+                Document doc = searcher.doc(scoreDoc.doc);
+                IndexableField ageField = doc.getField("AGE");
+                if (ageField != null) {
+                    String ageStr = ageField.stringValue();
+                    int age = parseAgeFromString(ageStr);
+                    if (age >= ageGroup.getMinAge() && age <= ageGroup.getMaxAge()) {
+                        filteredDocs.add(scoreDoc);
+                    }
+                }
+            }
+
+            log.info("📊 AGE字段过滤后找到{}条匹配的文档", filteredDocs.size());
+
+            // 手动分页
+            for (int i = fromIndex; i < Math.min(filteredDocs.size(), fromIndex + pageSize); i++) {
+                results.add(searcher.doc(filteredDocs.get(i).doc));
+            }
+
+            // 更新total为实际过滤后的数量
+            total = filteredDocs.size();
         }
-        
+
         return new PageResult(results, total);
     }
 
@@ -1273,6 +1419,55 @@ public class IdxService implements DisposableBean {
             }
             return -1;
         }
+    }
+
+    /**
+     * 从字符串中解析年龄
+     * 支持格式: "Age: 20 years", "20", "Age: 18 years", "未获取到年龄"
+     * @param ageStr 包含年龄信息的字符串
+     * @return 解析出的年龄，如果解析失败返回 -1
+     */
+    private int parseAgeFromString(String ageStr) {
+        if (ageStr == null || ageStr.trim().isEmpty()) {
+            return -1;
+        }
+
+        ageStr = ageStr.trim();
+
+        // 检查是否是"未获取到年龄"等无效信息
+        if (ageStr.contains("未获取") || ageStr.contains("N/A") || ageStr.contains("unknown")) {
+            return -1;
+        }
+
+        // 尝试直接解析纯数字
+        try {
+            return Integer.parseInt(ageStr);
+        } catch (NumberFormatException e) {
+            // 如果不是纯数字，继续下面的逻辑
+        }
+
+        // 使用正则表达式提取数字
+        Pattern pattern = Pattern.compile("(\\d{1,3})");
+        Matcher matcher = pattern.matcher(ageStr);
+
+        if (matcher.find()) {
+            try {
+                int age = Integer.parseInt(matcher.group(1));
+                // 年龄合理性检查 (1-120岁)
+                if (age >= 1 && age <= 120) {
+                    return age;
+                } else {
+                    log.debug("年龄值超出合理范围: {}", age);
+                    return -1;
+                }
+            } catch (NumberFormatException e) {
+                log.warn("解析年龄数字失败: {}", matcher.group(1));
+                return -1;
+            }
+        }
+
+        log.debug("无法从字符串中解析年龄: {}", ageStr);
+        return -1;
     }
 
     @Override
