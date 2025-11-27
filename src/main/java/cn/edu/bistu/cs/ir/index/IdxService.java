@@ -59,7 +59,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Stream;
@@ -216,24 +218,69 @@ public class IdxService implements DisposableBean {
      * @return 分页检索结果
      */
     public PageResult queryByAgeGroup(AgeGroup ageGroup, int pageNo, int pageSize) throws Exception {
+        log.info("🔍 开始查询年龄组别: {} ({}-{}岁)", ageGroup.name(), ageGroup.getMinAge(), ageGroup.getMaxAge());
+
         if (ageGroup == null) {
             throw new IllegalArgumentException("年龄组别不能为空");
         }
-        
+
         // 参数验证
         if (pageNo < 1) pageNo = 1;
         if (pageSize < 1) pageSize = 10;
-        
+
         // 打开准实时索引Reader
         DirectoryReader reader = DirectoryReader.open(writer);
         IndexSearcher searcher = new IndexSearcher(reader);
-        
+        log.info("📊 索引总文档数: {}", reader.numDocs());
+
         // 构建年龄范围查询
         Query query = IntPoint.newRangeQuery("AGE_NUM", ageGroup.getMinAge(), ageGroup.getMaxAge());
-        
+        log.info("🎯 构建查询条件: AGE_NUM between {} and {}", ageGroup.getMinAge(), ageGroup.getMaxAge());
+
         // 先获取总记录数
         TopDocs totalDocs = searcher.search(query, Integer.MAX_VALUE);
         long total = totalDocs.totalHits.value;
+        log.info("📈 查询结果总记录数: {}", total);
+
+        // 如果是CADET查询且无结果，提供额外调试信息
+        if (ageGroup == AgeGroup.CADET && total == 0) {
+            log.warn("⚠️ CADET年龄组(15-17岁)无数据，开始详细调试...");
+
+            // 查询所有记录的年龄分布
+            Query allQuery = new MatchAllDocsQuery();
+            TopDocs allDocs = searcher.search(allQuery, 100);
+            log.info("🔢 总共查询到 {} 条记录用于年龄分析", allDocs.totalHits.value);
+
+            // 统计年龄分布
+            Map<Integer, Integer> ageDistribution = new HashMap<>();
+            for (ScoreDoc scoreDoc : allDocs.scoreDocs) {
+                Document doc = searcher.doc(scoreDoc.doc);
+                IndexableField ageField = doc.getField("AGE_NUM");
+                if (ageField != null) {
+                    int age = ageField.numericValue().intValue();
+                    ageDistribution.put(age, ageDistribution.getOrDefault(age, 0) + 1);
+                }
+            }
+
+            log.info("📊 年龄分布统计: {}", ageDistribution);
+
+            // 统计各年龄组的人数
+            Map<String, Integer> groupCount = new HashMap<>();
+            for (Map.Entry<Integer, Integer> entry : ageDistribution.entrySet()) {
+                int age = entry.getKey();
+                int count = entry.getValue();
+                AgeGroup group = AgeGroup.getByAge(age);
+                if (group != null) {
+                    groupCount.put(group.name(), groupCount.getOrDefault(group.name(), 0) + count);
+                } else {
+                    groupCount.put("UNKNOWN", groupCount.getOrDefault("UNKNOWN", 0) + count);
+                }
+            }
+
+            log.info("👥 各年龄组人数统计: {}", groupCount);
+            log.info("🚨 特别检查: 15-17岁年龄段的人数 = {}",
+                ageDistribution.getOrDefault(15, 0) + ageDistribution.getOrDefault(16, 0) + ageDistribution.getOrDefault(17, 0));
+        }
         
         // 计算分页参数
         int fromIndex = (pageNo - 1) * pageSize;

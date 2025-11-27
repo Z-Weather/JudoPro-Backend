@@ -146,7 +146,7 @@ public class QueryController {
     public QueryResponse<PageResponse<Map<String, String>>> queryByAgeGroup(@RequestParam(name = "ageGroup") String ageGroup,
                                                                            @RequestParam(name = "pageNo", defaultValue = "1") int pageNo,
                                                                            @RequestParam(name = "pageSize", defaultValue = "10") int pageSize) {
-        log.info("年龄组查询API - ageGroup: {}, pageNo: {}, pageSize: {}", ageGroup, pageNo, pageSize);
+        log.info("🎯 年龄组查询API开始 - ageGroup: {}, pageNo: {}, pageSize: {}", ageGroup, pageNo, pageSize);
 
         try {
             // 参数验证
@@ -181,7 +181,16 @@ public class QueryController {
             
             // 构建分页响应对象
             PageResponse<Map<String, String>> pageResponse = PageResponse.of(results, pageNo, pageSize, pageResult.getTotal());
-            
+
+            // 添加调试日志
+            log.info("✅ 年龄组查询完成 - 组别: {}, 查询到结果数: {}, 总记录数: {}",
+                ageGroup, results.size(), pageResult.getTotal());
+
+            // 如果是CADET且无结果，特别提醒
+            if ("CADET".equalsIgnoreCase(ageGroup) && results.isEmpty()) {
+                log.warn("🚨 CADET年龄组查询返回空结果！建议检查数据源中是否有15-17岁的运动员");
+            }
+
             return QueryResponse.genSucc("年龄组别检索成功", pageResponse);
         } catch (Exception e) {
             log.error("年龄组别检索过程中发生异常:[{}]", e.getMessage());
