@@ -1298,15 +1298,16 @@ public class IdxService implements DisposableBean {
      */
     public int rebuildIndexFromWorkspace() {
         if (writer == null) {
-            log.error("IndexWriter未初始化，无法重建索引");
+            log.error("❌ JudoIngest - IndexWriter未初始化，无法重建索引");
             return -1;
         }
 
-        log.info("=== 开始从workspace重建索引 ===");
+        log.error("🔍 JudoIngest - === 开始从workspace重建索引 ===");
         Path crawlerPath = Paths.get(config.getCrawler());
+        log.error("📂 JudoIngest - Crawler目录绝对路径: {}", crawlerPath.toAbsolutePath());
 
         if (!Files.exists(crawlerPath) || !Files.isDirectory(crawlerPath)) {
-            log.error("Workspace目录不存在或不是目录: {}", config.getCrawler());
+            log.error("❌ JudoIngest - Workspace目录不存在或不是目录: {}", config.getCrawler());
             return -1;
         }
 
@@ -1327,7 +1328,7 @@ public class IdxService implements DisposableBean {
                 .filter(path -> path.toString().endsWith(".json"))) {
 
                 long totalFiles = jsonFiles.count();
-                log.info("找到{}个JSON文件，开始重建索引...", totalFiles);
+                log.error("📄 JudoIngest - 找到 {} 个JSON文件，开始重建索引...", totalFiles);
 
                 // 重新打开流来处理文件
                 try (Stream<Path> jsonFiles2 = Files.walk(crawlerPath)
@@ -1394,7 +1395,9 @@ public class IdxService implements DisposableBean {
                             }
 
                         } catch (Exception e) {
-                            log.error("处理JSON文件失败: {}, 错误: {}", jsonPath, e.getMessage());
+                            log.error("❌ JudoIngest - 处理JSON文件失败: {}", jsonPath.getFileName());
+                            log.error("❌ JudoIngest - 文件路径: {}", jsonPath.toAbsolutePath());
+                            log.error("❌ JudoIngest - 错误详情: {}", e.getMessage(), e);
                             errorCount.incrementAndGet();
                         }
                     });
@@ -1403,19 +1406,19 @@ public class IdxService implements DisposableBean {
 
             // 最终提交
             writer.commit();
-            log.info("=== 索引重建完成 ===");
-            log.info("总共处理: {} 条记录", processedCount.get());
-            log.info("处理失败: {} 条记录", errorCount.get());
-            log.info("成功重建: {} 条记录", processedCount.get() - errorCount.get());
+            log.error("✅ JudoIngest - === 索引重建完成 ===");
+            log.error("📊 JudoIngest - 总共处理: {} 条记录", processedCount.get());
+            log.error("❌ JudoIngest - 处理失败: {} 条记录", errorCount.get());
+            log.error("✅ JudoIngest - 成功重建: {} 条记录", processedCount.get() - errorCount.get());
 
             return processedCount.get() - errorCount.get();
 
         } catch (Exception e) {
-            log.error("重建索引过程中发生错误: {}", e.getMessage(), e);
+            log.error("💥 JudoIngest - 重建索引过程中发生错误: {}", e.getMessage(), e);
             try {
                 writer.rollback();
             } catch (IOException ioException) {
-                log.error("回滚索引失败: {}", ioException.getMessage());
+                log.error("💥 JudoIngest - 回滚索引失败: {}", ioException.getMessage());
             }
             return -1;
         }

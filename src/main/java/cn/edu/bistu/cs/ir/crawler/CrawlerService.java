@@ -69,9 +69,53 @@ public class CrawlerService{
 
     @PostConstruct
     public void init(){
-        if(config.isStartCrawler()){
-            // log.info("系统配置信息中[startCrawler]配置项为true，启动爬虫的运行");
-            startCnBlogCrawler("all_male");
+        // 🔍 关键诊断日志：启动时的数据摄入检查
+        log.error("🔍 JudoIngest - 开始数据摄入诊断");
+        log.error("🔍 JudoIngest - 配置检查 - startCrawler: {}", config.isStartCrawler());
+
+        // 📂 检查本地数据目录
+        java.nio.file.Path crawlerPath = java.nio.file.Paths.get(config.getCrawler());
+        log.error("📂 JudoIngest - 扫描目录: {}", crawlerPath.toAbsolutePath());
+
+        if (java.nio.file.Files.exists(crawlerPath) && java.nio.file.Files.isDirectory(crawlerPath)) {
+            try {
+                // 统计JSON文件数量
+                long jsonFileCount = java.nio.file.Files.walk(crawlerPath)
+                    .filter(java.nio.file.Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".json"))
+                    .count();
+
+                log.error("📄 JudoIngest - 找到 {} 个JSON文件到索引", jsonFileCount);
+
+                if (jsonFileCount > 0) {
+                    // 🎯 关键决策：有本地数据时，应该优先从本地重建索引
+                    log.error("🎯 JudoIngest - 发现本地数据，尝试重建索引而不是启动爬虫");
+                    try {
+                        int rebuiltRecords = idxService.rebuildIndexFromWorkspace();
+                        log.error("✅ JudoIngest - 重建索引完成，处理了 {} 条记录", rebuiltRecords);
+                    } catch (Exception e) {
+                        log.error("❌ JudoIngest - 重建索引失败", e);
+                        // 如果重建失败，仍然尝试启动爬虫
+                    }
+                } else {
+                    log.error("⚠️ JudoIngest - 本地目录为空，将启动网络爬虫");
+                }
+
+            } catch (Exception e) {
+                log.error("❌ JudoIngest - 扫描本地目录失败", e);
+            }
+        } else {
+            log.error("❌ JudoIngest - 本地目录不存在或无法访问: {}", config.getCrawler());
         }
+
+        // 🌐 原有爬虫逻辑
+        if(config.isStartCrawler()){
+            log.error("🌐 JudoIngest - 配置启动网络爬虫 - startCrawler=true");
+            startCnBlogCrawler("all_male");
+        } else {
+            log.error("🌐 JudoIngest - 配置禁用网络爬虫 - startCrawler=false");
+        }
+
+        log.error("🔍 JudoIngest - 数据摄入诊断完成");
     }
 }
