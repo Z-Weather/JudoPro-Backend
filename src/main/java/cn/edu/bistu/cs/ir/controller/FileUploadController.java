@@ -874,9 +874,9 @@ public class FileUploadController {
             }
 
             // 4. 将文件转换为Base64
-            log.info("🔄 步骤4: 开始将文件转换为Base64...");
-            mediaBase64 = convertMultipartFileToBase64(mediaFile);
-            log.info("✅ Base64转换完成 - 长度: {} 字符", mediaBase64.length());
+            log.info("🔄 步骤4: 开始将{}文件转换为Base64...", mediaType);
+            mediaBase64 = convertMultipartFileToBase64(mediaFile, mediaType);
+            log.info("✅ {} Base64转换完成 - 长度: {} 字符", mediaType, mediaBase64.length());
 
             // 4. 创建AI分析记录
             log.info("📝 步骤4: 创建AI分析记录...");
@@ -1030,8 +1030,8 @@ public class FileUploadController {
     /**
      * 将MultipartFile转换为Base64字符串
      */
-    private String convertMultipartFileToBase64(MultipartFile mediaFile) throws IOException {
-        log.info("🔄 开始将{}转换为Base64", mediaFile.getOriginalFilename());
+    private String convertMultipartFileToBase64(MultipartFile mediaFile, String mediaType) throws IOException {
+        log.info("🔄 开始将{}转换为Base64（类型: {}）", mediaFile.getOriginalFilename(), mediaType);
 
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[4096];
@@ -1076,28 +1076,37 @@ public class FileUploadController {
         textContent.put("text", prompt);
         content.add(textContent);
 
-        // 图片内容
-        log.info("🖼️  添加图片内容...");
-        Map<String, Object> imageContent = new HashMap<>();
-        imageContent.put("type", "image_url");
-        Map<String, String> imageUrl = new HashMap<>();
-        String fullImageUrl = "data:image/jpeg;base64," + mediaBase64;
-        imageUrl.put("url", fullImageUrl);
-        imageContent.put("image_url", imageUrl);
-        content.add(imageContent);
+        // 媒体内容（图片或视频）
+        Map<String, Object> mediaContent = new HashMap<>();
+        if ("image".equals(mediaType)) {
+            log.info("🖼️ 添加图片内容...");
+            mediaContent.put("type", "image_url");
+            Map<String, String> imageUrl = new HashMap<>();
+            String fullImageUrl = "data:image/jpeg;base64," + mediaBase64;
+            imageUrl.put("url", fullImageUrl);
+            mediaContent.put("image_url", imageUrl);
+        } else if ("video".equals(mediaType)) {
+            log.info("🎬 添加视频内容...");
+            mediaContent.put("type", "video_url");
+            Map<String, String> videoUrl = new HashMap<>();
+            String fullVideoUrl = "data:video/mp4;base64," + mediaBase64;
+            videoUrl.put("url", fullVideoUrl);
+            mediaContent.put("video_url", videoUrl);
+        }
+        content.add(mediaContent);
 
         message.put("content", content);
         messages.add(message);
         requestBody.put("messages", messages);
 
         log.info("✅ 外部模型请求体构造完成 - 包含 {} 个消息对象", messages.size());
-        log.info("📤 发送请求到火山引擎...");
+        log.info("📤 发送{}请求到火山引擎...", mediaType);
 
         // 发送HTTP请求
         String result = sendHttpRequest(requestBody);
 
-        log.info("📨 收到火山引擎响应 - 响应长度: {} 字符", result.length());
-        log.info("🔍 响应预览: {}", result.length() > 100 ? result.substring(0, 100) + "..." : result);
+        log.info("📨 收到火山引擎{}响应 - 响应长度: {} 字符", mediaType, result.length());
+        log.info("🔍 {}响应预览: {}", mediaType, result.length() > 100 ? result.substring(0, 100) + "..." : result);
 
         return result;
     }
