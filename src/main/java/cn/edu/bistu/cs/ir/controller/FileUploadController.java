@@ -936,6 +936,144 @@ public class FileUploadController {
         }
     }
 
+    /**
+     * 本地AI图片分析接口 - 调用Python微服务
+     */
+    @PostMapping("/analyze-local")
+    public ResponseEntity<Map<String, Object>> analyzeLocalImage(
+            @RequestParam("image") String imageBase64) {
+
+        log.info("🔥 ===== 开始本地AI分析请求 =====");
+        log.info("🖼️  图片Base64长度: {} 字符", imageBase64.length());
+        log.info("🔍 Base64前缀: {}", imageBase64.length() > 20 ? imageBase64.substring(0, 20) + "..." : imageBase64);
+
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            log.info("🏗️  开始构造Python微服务请求体...");
+
+            // 构造发送给Python微服务的请求体
+            Map<String, Object> pythonRequest = new HashMap<>();
+            pythonRequest.put("type", "image");
+            pythonRequest.put("data_base64", imageBase64);
+
+            log.info("📤 准备发送请求到Python微服务...");
+
+            // 发送HTTP请求到Python微服务
+            String pythonResult = callPythonMicroservice(pythonRequest);
+
+            log.info("📨 收到Python微服务响应 - 响应长度: {} 字符", pythonResult.length());
+            log.info("🔍 响应预览: {}", pythonResult.length() > 200 ? pythonResult.substring(0, 200) + "..." : pythonResult);
+
+            // 解析Python微服务的响应
+            Map<String, Object> pythonResponse = objectMapper.readValue(pythonResult, Map.class);
+            Integer code = (Integer) pythonResponse.get("code");
+            String resultType = (String) pythonResponse.get("result_type");
+            String imageBase64Data = (String) pythonResponse.get("image_base64_data");
+
+            log.info("📊 Python响应解析 - code: {}, result_type: {}", code, resultType);
+
+            // 构造返回给Postman的响应
+            response.put("success", code == 200);
+            response.put("message", code == 200 ? "本地分析成功" : "本地分析失败");
+            response.put("code", code);
+            response.put("result_type", resultType);
+            response.put("processed_image", imageBase64Data);
+
+            log.info("✅ ===== 本地AI分析请求完成 =====");
+
+        } catch (Exception e) {
+            log.error("💥 ===== 本地AI分析请求失败 =====");
+            log.error("❌ 异常类型: {}", e.getClass().getSimpleName());
+            log.error("❌ 异常消息: {}", e.getMessage());
+
+            // 打印异常堆栈的关键信息
+            StackTraceElement[] stackTrace = e.getStackTrace();
+            for (int i = 0; i < Math.min(3, stackTrace.length); i++) {
+                log.error("❌ 堆栈[{}]: {}.{}():{}",
+                    i,
+                    stackTrace[i].getClassName(),
+                    stackTrace[i].getMethodName(),
+                    stackTrace[i].getLineNumber());
+            }
+
+            response.put("success", false);
+            response.put("message", "本地分析失败: " + e.getMessage());
+            response.put("error_type", e.getClass().getSimpleName());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 调用Python微服务
+     */
+    private String callPythonMicroservice(Map<String, Object> requestBody) {
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // 打印请求体详情
+            String requestBodyStr = objectMapper.writeValueAsString(requestBody);
+            log.info("🚀 Python微服务请求详情:");
+            log.info("   URL: http://127.0.0.1:5000/analyze");
+            log.info("   Method: POST");
+            log.info("   Content-Type: application/json");
+            log.info("   Body大小: {} 字符", requestBodyStr.length());
+            log.info("   Body内容: {}", requestBodyStr);
+
+            okhttp3.MediaType mediaType = okhttp3.MediaType.parse("application/json; charset=utf-8");
+            RequestBody body = RequestBody.create(mediaType, requestBodyStr);
+
+            Request request = new Request.Builder()
+                .url("http://127.0.0.1:5000/analyze")
+                .addHeader("Content-Type", "application/json")
+                .post(body)
+                .build();
+
+            log.info("📤 发送请求到Python微服务...");
+
+            try (okhttp3.Response response = client.newCall(request).execute()) {
+                long endTime = System.currentTimeMillis();
+                long duration = endTime - startTime;
+
+                log.info("📥 收到Python微服务响应:");
+                log.info("   状态码: {}", response.code());
+                log.info("   响应时间: {}ms", duration);
+                log.info("   响应消息: {}", response.message());
+                log.info("   响应头: {}", response.headers());
+
+                if (!response.isSuccessful()) {
+                    log.error("❌ Python微服务请求失败 - 状态码: {}", response.code());
+                    throw new RuntimeException("Python微服务返回错误: " + response.code() + " " + response.message());
+                }
+
+                String responseBody = response.body().string();
+                log.info("📄 响应体大小: {} 字符", responseBody.length());
+                log.info("📄 响应体内容: {}", responseBody.length() > 500 ? responseBody.substring(0, 500) + "..." : responseBody);
+
+                return responseBody;
+            }
+        } catch (Exception e) {
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+
+            log.error("💥 Python微服务请求异常 - 耗时: {}ms", duration, e);
+            log.error("❌ 异常类型: {}", e.getClass().getSimpleName());
+            log.error("❌ 异常消息: {}", e.getMessage());
+
+            // 打印异常堆栈的详细信息
+            StackTraceElement[] stackTrace = e.getStackTrace();
+            if (stackTrace.length > 0) {
+                log.error("❌ 异常位置: {}.{}():{}",
+                    stackTrace[0].getClassName(),
+                    stackTrace[0].getMethodName(),
+                    stackTrace[0].getLineNumber());
+            }
+
+            throw new RuntimeException("Python微服务调用失败: " + e.getMessage(), e);
+        }
+    }
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
