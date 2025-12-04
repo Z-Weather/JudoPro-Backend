@@ -779,73 +779,82 @@ public class FileUploadController {
     }
 
     /**
-     * AI视觉分析接口
+     * AI视觉分析接口 - 同时调用外部模型和Python微服务
      */
     @PostMapping("/analyze")
     public ResponseEntity<Map<String, Object>> analyzeImage(
             @RequestParam("image") String imageBase64,
             @RequestParam("prompt") String prompt) {
 
-        log.info("🎯 ===== 开始AI分析请求 =====");
+        log.info("🎯 ===== 开始双重AI分析请求 =====");
         log.info("📝 提示词: {}", prompt);
         log.info("🖼️  图片Base64长度: {} 字符", imageBase64.length());
         log.info("🔍 Base64前缀: {}", imageBase64.length() > 20 ? imageBase64.substring(0, 20) + "..." : imageBase64);
-        log.info("🔍 Base64后缀: {}", imageBase64.length() > 20 ? "..." + imageBase64.substring(imageBase64.length() - 20) : imageBase64);
 
         Map<String, Object> response = new HashMap<>();
 
         try {
-            log.info("🏗️  开始构造请求体...");
+            // 初始化结果变量
+            String externalModelResult = null;
+            String pythonServiceResult = null;
+            Map<String, Object> pythonServiceData = null;
+            String annotatedImageData = null;
 
-            // 构造请求体
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", "ep-20251204141721-tgjzh");
+            log.info("🔄 ===== 开始并行调用两个模型 =====");
 
-            List<Map<String, Object>> messages = new ArrayList<>();
-            Map<String, Object> message = new HashMap<>();
-            message.put("role", "user");
+            // 1. 调用外部模型（火山引擎）获取文字说明
+            log.info("🔥 步骤1: 开始调用外部模型获取文字说明...");
+            try {
+                externalModelResult = callExternalModel(imageBase64, prompt);
+                log.info("✅ 外部模型调用成功 - 响应长度: {} 字符", externalModelResult.length());
+            } catch (Exception e) {
+                log.error("❌ 外部模型调用失败: {}", e.getMessage());
+                throw e;
+            }
 
-            List<Map<String, Object>> content = new ArrayList<>();
+            // 2. 调用Python微服务获取标点图片数据
+            log.info("🐍 步骤2: 开始调用Python微服务获取标点图片...");
+            try {
+                pythonServiceResult = callPythonMicroservice(imageBase64, "image");
+                log.info("✅ Python微服务调用成功 - 响应长度: {} 字符", pythonServiceResult.length());
 
-            // 文本内容
-            log.info("📝 添加文本内容...");
-            Map<String, Object> textContent = new HashMap<>();
-            textContent.put("type", "text");
-            textContent.put("text", prompt);
-            content.add(textContent);
+                // 解析Python微服务响应
+                pythonServiceData = objectMapper.readValue(pythonServiceResult, Map.class);
+                Integer code = (Integer) pythonServiceData.get("code");
+                String resultType = (String) pythonServiceData.get("result_type");
+                annotatedImageData = (String) pythonServiceData.get("image_base64_data");
 
-            // 图片内容
-            log.info("🖼️  添加图片内容...");
-            Map<String, Object> imageContent = new HashMap<>();
-            imageContent.put("type", "image_url");
-            Map<String, String> imageUrl = new HashMap<>();
-            String fullImageUrl = "data:image/jpeg;base64," + imageBase64;
-            imageUrl.put("url", fullImageUrl);
-            imageContent.put("image_url", imageUrl);
-            content.add(imageContent);
+                log.info("📊 Python响应解析 - code: {}, result_type: {}, 是否有图片数据: {}",
+                    code, resultType, annotatedImageData != null && !annotatedImageData.isEmpty());
+            } catch (Exception e) {
+                log.error("❌ Python微服务调用失败: {}", e.getMessage());
+                throw e;
+            }
 
-            message.put("content", content);
-            messages.add(message);
-            requestBody.put("messages", messages);
-
-            log.info("✅ 请求体构造完成 - 包含 {} 个消息对象", messages.size());
-            log.info("📤 准备发送请求到火山引擎...");
-
-            // 发送HTTP请求
-            String result = sendHttpRequest(requestBody);
-
-            log.info("📨 收到火山引擎响应 - 响应长度: {} 字符", result.length());
-            log.info("🔍 响应预览: {}", result.length() > 100 ? result.substring(0, 100) + "..." : result);
-
-            // 构造返回结果
+            // 3. 构造组合返回结果
+            log.info("🏗️  步骤3: 构造组合响应结果...");
             response.put("success", true);
-            response.put("message", "分析成功");
-            response.put("result", result);
+            response.put("message", "双重分析成功");
 
-            log.info("✅ ===== AI分析请求完成 =====");
+            // 外部模型结果（文字说明）
+            response.put("external_model_result", externalModelResult);
+
+            // Python微服务结果（标点图片）
+            Map<String, Object> pythonResult = new HashMap<>();
+            if (pythonServiceData != null) {
+                pythonResult.put("code", pythonServiceData.get("code"));
+                pythonResult.put("result_type", pythonServiceData.get("result_type"));
+                pythonResult.put("annotated_image", annotatedImageData);
+            }
+            response.put("python_service_result", pythonResult);
+
+            log.info("📈 结果统计:");
+            log.info("   - 外部模型文字说明: {}", externalModelResult != null ? "✅" : "❌");
+            log.info("   - Python标点图片: {}", annotatedImageData != null ? "✅" : "❌");
+            log.info("✅ ===== 双重AI分析请求完成 =====");
 
         } catch (Exception e) {
-            log.error("💥 ===== AI分析请求失败 =====");
+            log.error("💥 ===== 双重AI分析请求失败 =====");
             log.error("❌ 异常类型: {}", e.getClass().getSimpleName());
             log.error("❌ 异常消息: {}", e.getMessage());
 
@@ -860,11 +869,151 @@ public class FileUploadController {
             }
 
             response.put("success", false);
-            response.put("message", "分析失败: " + e.getMessage());
+            response.put("message", "双重分析失败: " + e.getMessage());
             response.put("error_type", e.getClass().getSimpleName());
         }
 
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 调用外部模型（火山引擎）获取文字说明
+     */
+    private String callExternalModel(String imageBase64, String prompt) throws Exception {
+        log.info("🏗️  构造外部模型请求体...");
+
+        // 构造请求体
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("model", "ep-20251204141721-tgjzh");
+
+        List<Map<String, Object>> messages = new ArrayList<>();
+        Map<String, Object> message = new HashMap<>();
+        message.put("role", "user");
+
+        List<Map<String, Object>> content = new ArrayList<>();
+
+        // 文本内容
+        log.info("📝 添加文本内容...");
+        Map<String, Object> textContent = new HashMap<>();
+        textContent.put("type", "text");
+        textContent.put("text", prompt);
+        content.add(textContent);
+
+        // 图片内容
+        log.info("🖼️  添加图片内容...");
+        Map<String, Object> imageContent = new HashMap<>();
+        imageContent.put("type", "image_url");
+        Map<String, String> imageUrl = new HashMap<>();
+        String fullImageUrl = "data:image/jpeg;base64," + imageBase64;
+        imageUrl.put("url", fullImageUrl);
+        imageContent.put("image_url", imageUrl);
+        content.add(imageContent);
+
+        message.put("content", content);
+        messages.add(message);
+        requestBody.put("messages", messages);
+
+        log.info("✅ 外部模型请求体构造完成 - 包含 {} 个消息对象", messages.size());
+        log.info("📤 发送请求到火山引擎...");
+
+        // 发送HTTP请求
+        String result = sendHttpRequest(requestBody);
+
+        log.info("📨 收到火山引擎响应 - 响应长度: {} 字符", result.length());
+        log.info("🔍 响应预览: {}", result.length() > 100 ? result.substring(0, 100) + "..." : result);
+
+        return result;
+    }
+
+    /**
+     * 调用Python微服务获取标点图片数据
+     */
+    private String callPythonMicroservice(String imageBase64, String mediaType) throws Exception {
+        log.info("🐍 构造Python微服务请求体...");
+
+        // 按照规范构造发送给Python微服务的请求体
+        Map<String, Object> pythonRequest = new HashMap<>();
+        pythonRequest.put("type", mediaType); // "image" 或 "video"
+        pythonRequest.put("data_base64", imageBase64);
+
+        log.info("📤 准备发送请求到Python微服务 (http://127.0.0.1:5000/analyze)...");
+
+        // 发送HTTP请求到Python微服务
+        String pythonResult = callPythonService(pythonRequest);
+
+        log.info("📨 收到Python微服务响应 - 响应长度: {} 字符", pythonResult.length());
+        log.info("🔍 响应预览: {}", pythonResult.length() > 200 ? pythonResult.substring(0, 200) + "..." : pythonResult);
+
+        return pythonResult;
+    }
+
+    /**
+     * 发送HTTP请求到Python微服务
+     */
+    private String callPythonService(Map<String, Object> requestBody) throws Exception {
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // 打印请求体详情
+            String requestBodyStr = objectMapper.writeValueAsString(requestBody);
+            log.info("🚀 Python微服务请求详情:");
+            log.info("   URL: http://127.0.0.1:5000/analyze");
+            log.info("   Method: POST");
+            log.info("   Content-Type: application/json");
+            log.info("   Body大小: {} 字符", requestBodyStr.length());
+            log.info("   Body内容: {}", requestBodyStr);
+
+            okhttp3.MediaType mediaType = okhttp3.MediaType.parse("application/json; charset=utf-8");
+            RequestBody body = RequestBody.create(mediaType, requestBodyStr);
+
+            Request request = new Request.Builder()
+                .url("http://127.0.0.1:5000/analyze")
+                .addHeader("Content-Type", "application/json")
+                .post(body)
+                .build();
+
+            log.info("📤 发送请求到Python微服务...");
+
+            try (okhttp3.Response response = client.newCall(request).execute()) {
+                long endTime = System.currentTimeMillis();
+                long duration = endTime - startTime;
+
+                log.info("📥 收到Python微服务响应:");
+                log.info("   状态码: {}", response.code());
+                log.info("   响应时间: {}ms", duration);
+                log.info("   响应消息: {}", response.message());
+                log.info("   响应头: {}", response.headers());
+
+                if (!response.isSuccessful()) {
+                    log.error("❌ Python微服务请求失败 - 状态码: {}", response.code());
+                    throw new RuntimeException("Python微服务返回错误: " + response.code() + " " + response.message());
+                }
+
+                String responseBody = response.body().string();
+                log.info("📄 响应体大小: {} 字符", responseBody.length());
+                log.info("📄 响应体内容: {}", responseBody.length() > 500 ? responseBody.substring(0, 500) + "..." : responseBody);
+
+                return responseBody;
+            }
+        } catch (Exception e) {
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+
+            log.error("💥 Python微服务请求异常 - 耗时: {}ms", duration, e);
+            log.error("❌ 异常类型: {}", e.getClass().getSimpleName());
+            log.error("❌ 异常消息: {}", e.getMessage());
+
+            // 打印异常堆栈的详细信息
+            StackTraceElement[] stackTrace = e.getStackTrace();
+            if (stackTrace.length > 0) {
+                log.error("❌ 异常位置: {}.{}():{}",
+                    stackTrace[0].getClassName(),
+                    stackTrace[0].getMethodName(),
+                    stackTrace[0].getLineNumber());
+            }
+
+            throw new RuntimeException("Python微服务调用失败: " + e.getMessage(), e);
+        }
     }
 
     /**
