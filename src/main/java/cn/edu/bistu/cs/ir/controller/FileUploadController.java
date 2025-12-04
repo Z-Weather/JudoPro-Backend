@@ -5,7 +5,12 @@ import cn.edu.bistu.cs.ir.model.User;
 import cn.edu.bistu.cs.ir.service.UserFileService;
 import cn.edu.bistu.cs.ir.service.UserService;
 import cn.edu.bistu.cs.ir.utils.FileUploadUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import okhttp3.*;
+import java.util.*;
 import java.util.Optional;
+
+import okhttp3.RequestBody;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -772,4 +777,169 @@ public class FileUploadController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
+
+    /**
+     * AI视觉分析接口
+     */
+    @PostMapping("/analyze")
+    public ResponseEntity<Map<String, Object>> analyzeImage(
+            @RequestParam("image") String imageBase64,
+            @RequestParam("prompt") String prompt) {
+
+        log.info("🎯 ===== 开始AI分析请求 =====");
+        log.info("📝 提示词: {}", prompt);
+        log.info("🖼️  图片Base64长度: {} 字符", imageBase64.length());
+        log.info("🔍 Base64前缀: {}", imageBase64.length() > 20 ? imageBase64.substring(0, 20) + "..." : imageBase64);
+        log.info("🔍 Base64后缀: {}", imageBase64.length() > 20 ? "..." + imageBase64.substring(imageBase64.length() - 20) : imageBase64);
+
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            log.info("🏗️  开始构造请求体...");
+
+            // 构造请求体
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("model", "ep-20251204141721-tgjzh");
+
+            List<Map<String, Object>> messages = new ArrayList<>();
+            Map<String, Object> message = new HashMap<>();
+            message.put("role", "user");
+
+            List<Map<String, Object>> content = new ArrayList<>();
+
+            // 文本内容
+            log.info("📝 添加文本内容...");
+            Map<String, Object> textContent = new HashMap<>();
+            textContent.put("type", "text");
+            textContent.put("text", prompt);
+            content.add(textContent);
+
+            // 图片内容
+            log.info("🖼️  添加图片内容...");
+            Map<String, Object> imageContent = new HashMap<>();
+            imageContent.put("type", "image_url");
+            Map<String, String> imageUrl = new HashMap<>();
+            String fullImageUrl = "data:image/jpeg;base64," + imageBase64;
+            imageUrl.put("url", fullImageUrl);
+            imageContent.put("image_url", imageUrl);
+            content.add(imageContent);
+
+            message.put("content", content);
+            messages.add(message);
+            requestBody.put("messages", messages);
+
+            log.info("✅ 请求体构造完成 - 包含 {} 个消息对象", messages.size());
+            log.info("📤 准备发送请求到火山引擎...");
+
+            // 发送HTTP请求
+            String result = sendHttpRequest(requestBody);
+
+            log.info("📨 收到火山引擎响应 - 响应长度: {} 字符", result.length());
+            log.info("🔍 响应预览: {}", result.length() > 100 ? result.substring(0, 100) + "..." : result);
+
+            // 构造返回结果
+            response.put("success", true);
+            response.put("message", "分析成功");
+            response.put("result", result);
+
+            log.info("✅ ===== AI分析请求完成 =====");
+
+        } catch (Exception e) {
+            log.error("💥 ===== AI分析请求失败 =====");
+            log.error("❌ 异常类型: {}", e.getClass().getSimpleName());
+            log.error("❌ 异常消息: {}", e.getMessage());
+
+            // 打印异常堆栈的关键信息
+            StackTraceElement[] stackTrace = e.getStackTrace();
+            for (int i = 0; i < Math.min(3, stackTrace.length); i++) {
+                log.error("❌ 堆栈[{}]: {}.{}():{}",
+                    i,
+                    stackTrace[i].getClassName(),
+                    stackTrace[i].getMethodName(),
+                    stackTrace[i].getLineNumber());
+            }
+
+            response.put("success", false);
+            response.put("message", "分析失败: " + e.getMessage());
+            response.put("error_type", e.getClass().getSimpleName());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 发送HTTP请求到火山引擎
+     */
+    private String sendHttpRequest(Map<String, Object> requestBody) {
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // 打印请求体详情
+            String requestBodyStr = objectMapper.writeValueAsString(requestBody);
+            log.info("🚀 HTTP请求详情:");
+            log.info("   URL: https://ark.cn-beijing.volces.com/api/v3/chat/completions");
+            log.info("   Method: POST");
+            log.info("   Headers: Authorization=Bearer [HIDDEN], Content-Type=application/json");
+            log.info("   Body大小: {} 字符", requestBodyStr.length());
+            log.info("   Body预览: {}", requestBodyStr.length() > 200 ? requestBodyStr.substring(0, 200) + "..." : requestBodyStr);
+
+            okhttp3.MediaType mediaType = okhttp3.MediaType.parse("application/json; charset=utf-8");
+            RequestBody body = RequestBody.create(mediaType, requestBodyStr);
+
+            Request request = new Request.Builder()
+                .url("https://ark.cn-beijing.volces.com/api/v3/chat/completions")
+                .addHeader("Authorization", "Bearer 80e00021-76e9-4844-b98b-2d342a17e164")
+                .addHeader("Content-Type", "application/json")
+                .post(body)
+                .build();
+
+            log.info("📤 发送HTTP请求...");
+
+            try (okhttp3.Response response = client.newCall(request).execute()) {
+                long endTime = System.currentTimeMillis();
+                long duration = endTime - startTime;
+
+                log.info("📥 收到HTTP响应:");
+                log.info("   状态码: {}", response.code());
+                log.info("   响应时间: {}ms", duration);
+                log.info("   响应消息: {}", response.message());
+                log.info("   响应头: {}", response.headers());
+
+                if (!response.isSuccessful()) {
+                    log.error("❌ HTTP请求失败 - 状态码: {}", response.code());
+                }
+
+                String responseBody = response.body().string();
+                log.info("📄 响应体大小: {} 字符", responseBody.length());
+                log.info("📄 响应体内容: {}", responseBody.length() > 500 ? responseBody.substring(0, 500) + "..." : responseBody);
+
+                return responseBody;
+            }
+        } catch (Exception e) {
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+
+            log.error("💥 HTTP请求异常 - 耗时: {}ms", duration, e);
+            log.error("❌ 异常类型: {}", e.getClass().getSimpleName());
+            log.error("❌ 异常消息: {}", e.getMessage());
+
+            // 打印异常堆栈的详细信息
+            StackTraceElement[] stackTrace = e.getStackTrace();
+            if (stackTrace.length > 0) {
+                log.error("❌ 异常位置: {}.{}():{}",
+                    stackTrace[0].getClassName(),
+                    stackTrace[0].getMethodName(),
+                    stackTrace[0].getLineNumber());
+            }
+
+            throw new RuntimeException("HTTP请求失败: " + e.getMessage(), e);
+        }
+    }
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .build();
 }
