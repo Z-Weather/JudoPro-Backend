@@ -7,6 +7,10 @@ import cn.edu.bistu.cs.ir.service.UserService;
 import cn.edu.bistu.cs.ir.utils.FileUploadUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.*;
 import java.util.Optional;
 
@@ -27,6 +31,7 @@ import javax.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 文件上传控制器
@@ -67,8 +72,8 @@ public class FileUploadController {
             Object currentUser = request.getSession().getAttribute("currentUser");
             if (currentUser != null) {
                 log.warn("   - currentUser对象: {}", currentUser.getClass().getName());
-                if (currentUser instanceof cn.edu.bistu.cs.ir.model.User) {
-                    cn.edu.bistu.cs.ir.model.User sessionUser = (cn.edu.bistu.cs.ir.model.User) currentUser;
+                if (currentUser instanceof User) {
+                    User sessionUser = (User) currentUser;
                     log.warn("   - currentUser用户ID: {}", sessionUser.getId());
                     return sessionUser.getId();
                 }
@@ -87,15 +92,15 @@ public class FileUploadController {
 
             Object principal = authentication.getPrincipal();
             if (principal != null) {
-                if (principal instanceof cn.edu.bistu.cs.ir.model.User) {
-                    Long userId = ((cn.edu.bistu.cs.ir.model.User) principal).getId();
+                if (principal instanceof User) {
+                    Long userId = ((User) principal).getId();
                     log.info("✅ 从Spring Security获取用户ID成功: {}", userId);
                     return userId;
                 } else if (principal instanceof String) {
                     log.warn("⚠️ Principal是字符串类型: {}", principal);
                     // 尝试通过用户名查找用户
                     try {
-                        Optional<cn.edu.bistu.cs.ir.model.User> userOpt = userService.findByUsername((String) principal);
+                        Optional<User> userOpt = userService.findByUsername((String) principal);
                         if (userOpt.isPresent()) {
                             Long userId = userOpt.get().getId();
                             log.info("✅ 通过用户名查找获取用户ID成功: {}", userId);
@@ -779,53 +784,134 @@ public class FileUploadController {
     }
 
     /**
-     * AI视觉分析接口 - 同时调用外部模型和Python微服务
+     * AI媒体分析接口 - 同时调用外部模型和Python微服务
+     * 支持图片和视频，使用Multipart接收文件并存储
      */
     @PostMapping("/analyze")
-    public ResponseEntity<Map<String, Object>> analyzeImage(
-            @RequestParam("image") String imageBase64,
-            @RequestParam("prompt") String prompt) {
+    public ResponseEntity<Map<String, Object>> analyzeMedia(
+            @RequestParam("file") MultipartFile mediaFile,
+            @RequestParam("prompt") String prompt,
+            @RequestParam(value = "description", required = false) String description) {
 
         log.info("🎯 ===== 开始双重AI分析请求 =====");
         log.info("📝 提示词: {}", prompt);
-        log.info("🖼️  图片Base64长度: {} 字符", imageBase64.length());
-        log.info("🔍 Base64前缀: {}", imageBase64.length() > 20 ? imageBase64.substring(0, 20) + "..." : imageBase64);
+        log.info("📁 文件名: {}", mediaFile.getOriginalFilename());
+        log.info("📊 文件大小: {} bytes", mediaFile.getSize());
+        log.info("📄 MIME类型: {}", mediaFile.getContentType());
+        log.info("📝 描述: {}", description != null ? description : "无");
 
         Map<String, Object> response = new HashMap<>();
 
+        // 声明变量在try块外部，确保在catch块中可以访问
+        String mediaType = "";
+        String mediaBase64;
+
         try {
+            // 文件验证
+            if (mediaFile == null || mediaFile.isEmpty()) {
+                log.error("❌ 上传文件为空");
+                response.put("success", false);
+                response.put("message", "请选择要上传的文件");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            // 直接使用默认用户ID，避免HttpServletRequest依赖问题
+            Long userId = 1L;
+            log.info("👤 用户ID: {}", userId);
+
+            // 检测媒体类型
+            String contentType = mediaFile.getContentType();
+            if (contentType != null) {
+                if (contentType.startsWith("image/")) {
+                    mediaType = "image";
+                } else if (contentType.startsWith("video/")) {
+                    mediaType = "video";
+                } else {
+                    // 通过文件扩展名检测
+                    String filename = mediaFile.getOriginalFilename().toLowerCase();
+                    if (filename.endsWith(".jpg") || filename.endsWith(".jpeg") || filename.endsWith(".png") || filename.endsWith(".gif")) {
+                        mediaType = "image";
+                    } else if (filename.endsWith(".mp4") || filename.endsWith(".avi") || filename.endsWith(".mov") || filename.endsWith(".mkv")) {
+                        mediaType = "video";
+                    } else {
+                        throw new IllegalArgumentException("不支持的文件类型: " + contentType + "，文件名: " + filename);
+                    }
+                }
+            } else {
+                throw new IllegalArgumentException("无法确定文件类型");
+            }
+
+            log.info("🎬 检测到媒体���型: {}", mediaType);
+
+            // 1. 存储文件到本地
+            log.info("💾 步骤1: 开始存储文件到本地...");
+            String fileUrl;
+            if ("image".equals(mediaType)) {
+                fileUrl = fileUploadUtils.uploadImage(mediaFile);
+            } else {
+                fileUrl = fileUploadUtils.uploadVideo(mediaFile);
+            }
+            log.info("✅ 文件存储成功 - URL: {}", fileUrl);
+
+            // 2. 保存文件信息到数据库
+            log.info("🗄️  步骤2: 开始保存文件信息到数据库...");
+            UserFile userFile;
+            if ("image".equals(mediaType)) {
+                userFile = userFileService.saveImageFile(userId, mediaFile, fileUrl);
+            } else {
+                userFile = userFileService.saveVideoFile(userId, mediaFile, fileUrl);
+            }
+            log.info("✅ 文件信息保存成功 - 数据库ID: {}", userFile.getId());
+
+            // 3. 更新文件描述
+            if (description != null && !description.trim().isEmpty()) {
+                log.info("📝 步骤3: 更新文件描述...");
+                userFileService.updateFileDescription(userId, userFile.getId(), description);
+            }
+
+            // 4. 将文件转换为Base64
+            log.info("🔄 步骤4: 开始将文件转换为Base64...");
+            mediaBase64 = convertMultipartFileToBase64(mediaFile);
+            log.info("✅ Base64转换完成 - 长度: {} 字符", mediaBase64.length());
+
             // 初始化结果变量
             String externalModelResult = null;
             String pythonServiceResult = null;
             Map<String, Object> pythonServiceData = null;
-            String annotatedImageData = null;
+            String annotatedMediaData = null;
 
             log.info("🔄 ===== 开始并行调用两个模型 =====");
 
             // 1. 调用外部模型（火山引擎）获取文字说明
-            log.info("🔥 步骤1: 开始调用外部模型获取文字说明...");
+            log.info("🔥 步骤1: 开始调用外部模型获取{}文字说明...", mediaType);
             try {
-                externalModelResult = callExternalModel(imageBase64, prompt);
+                externalModelResult = callExternalModel(mediaBase64, prompt, mediaType);
                 log.info("✅ 外部模型调用成功 - 响应长度: {} 字符", externalModelResult.length());
             } catch (Exception e) {
                 log.error("❌ 外部模型调用失败: {}", e.getMessage());
                 throw e;
             }
 
-            // 2. 调用Python微服务获取标点图片数据
-            log.info("🐍 步骤2: 开始调用Python微服务获取标点图片...");
+            // 2. 调用Python微服务获取标点媒体数据
+            log.info("🐍 步骤2: 开始调用Python微服务获取标点{}...", mediaType);
             try {
-                pythonServiceResult = callPythonMicroservice(imageBase64, "image");
+                pythonServiceResult = callPythonMicroservice(mediaBase64, mediaType);
                 log.info("✅ Python微服务调用成功 - 响应长度: {} 字符", pythonServiceResult.length());
 
                 // 解析Python微服务响应
                 pythonServiceData = objectMapper.readValue(pythonServiceResult, Map.class);
                 Integer code = (Integer) pythonServiceData.get("code");
                 String resultType = (String) pythonServiceData.get("result_type");
-                annotatedImageData = (String) pythonServiceData.get("image_base64_data");
 
-                log.info("📊 Python响应解析 - code: {}, result_type: {}, 是否有图片数据: {}",
-                    code, resultType, annotatedImageData != null && !annotatedImageData.isEmpty());
+                // 根据媒体类型提取标点数据
+                if ("image".equals(mediaType)) {
+                    annotatedMediaData = (String) pythonServiceData.get("image_base64_data");
+                } else if ("video".equals(mediaType)) {
+                    annotatedMediaData = (String) pythonServiceData.get("video_base64_data");
+                }
+
+                log.info("📊 Python响应解析 - code: {}, result_type: {}, 是否有标点{}数据: {}",
+                    code, resultType, mediaType, annotatedMediaData != null && !annotatedMediaData.isEmpty());
             } catch (Exception e) {
                 log.error("❌ Python微服务调用失败: {}", e.getMessage());
                 throw e;
@@ -835,26 +921,38 @@ public class FileUploadController {
             log.info("🏗️  步骤3: 构造组合响应结果...");
             response.put("success", true);
             response.put("message", "双重分析成功");
+            response.put("media_type", mediaType);
+            response.put("file_id", userFile.getId());
+            response.put("file_url", userFile.getFileUrl());
 
             // 外部模型结果（文字说明）
             response.put("external_model_result", externalModelResult);
 
-            // Python微服务结果（标点图片）
+            // Python微服务结果（标点媒体）
             Map<String, Object> pythonResult = new HashMap<>();
             if (pythonServiceData != null) {
                 pythonResult.put("code", pythonServiceData.get("code"));
                 pythonResult.put("result_type", pythonServiceData.get("result_type"));
-                pythonResult.put("annotated_image", annotatedImageData);
+
+                // 动态设置标点数据字段
+                if ("image".equals(mediaType)) {
+                    pythonResult.put("annotated_image", annotatedMediaData);
+                } else if ("video".equals(mediaType)) {
+                    pythonResult.put("annotated_video", annotatedMediaData);
+                }
+                pythonResult.put("annotated_media", annotatedMediaData); // 通用字段
             }
             response.put("python_service_result", pythonResult);
 
             log.info("📈 结果统计:");
             log.info("   - 外部模型文字说明: {}", externalModelResult != null ? "✅" : "❌");
-            log.info("   - Python标点图片: {}", annotatedImageData != null ? "✅" : "❌");
-            log.info("✅ ===== 双重AI分析请求完成 =====");
+            log.info("   - Python标点{}: {}", mediaType, annotatedMediaData != null ? "✅" : "❌");
+            log.info("   - 数据库文件ID: {}", userFile.getId());
+            log.info("   - 文件存储URL: {}", userFile.getFileUrl());
+            log.info("✅ ===== 双重AI{}分析请求完成 =====", mediaType);
 
         } catch (Exception e) {
-            log.error("💥 ===== 双重AI分析请求失败 =====");
+            log.error("💥 ===== 双重AI{}分析请求失败 =====", mediaType);
             log.error("❌ 异常类型: {}", e.getClass().getSimpleName());
             log.error("❌ 异常消息: {}", e.getMessage());
 
@@ -871,15 +969,42 @@ public class FileUploadController {
             response.put("success", false);
             response.put("message", "双重分析失败: " + e.getMessage());
             response.put("error_type", e.getClass().getSimpleName());
+            response.put("media_type", mediaType);
         }
 
         return ResponseEntity.ok(response);
     }
 
     /**
-     * 调用外部模型（火山引擎）获取文字说明
+     * 将MultipartFile转换为Base64字符串
      */
-    private String callExternalModel(String imageBase64, String prompt) throws Exception {
+    private String convertMultipartFileToBase64(MultipartFile mediaFile) throws IOException {
+        log.info("🔄 开始将{}转换为Base64", mediaFile.getOriginalFilename());
+
+        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            long totalBytes = 0;
+
+            try (InputStream inputStream = mediaFile.getInputStream()) {
+                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                    totalBytes += bytesRead;
+                }
+            }
+
+            String base64Data = Base64.getEncoder().encodeToString(outputStream.toByteArray());
+            log.info("✅ {} Base64转换完成 - 原始大小: {} bytes, Base64长度: {} 字符",
+                mediaFile.getOriginalFilename(), totalBytes, base64Data.length());
+
+            return base64Data;
+        }
+    }
+
+    /**
+     * 调用外部模型（火山引擎）获取文字说明 - 支持图片和视频
+     */
+    private String callExternalModel(String mediaBase64, String prompt, String mediaType) throws Exception {
         log.info("🏗️  构造外部模型请求体...");
 
         // 构造请求体
@@ -904,7 +1029,7 @@ public class FileUploadController {
         Map<String, Object> imageContent = new HashMap<>();
         imageContent.put("type", "image_url");
         Map<String, String> imageUrl = new HashMap<>();
-        String fullImageUrl = "data:image/jpeg;base64," + imageBase64;
+        String fullImageUrl = "data:image/jpeg;base64," + mediaBase64;
         imageUrl.put("url", fullImageUrl);
         imageContent.put("image_url", imageUrl);
         content.add(imageContent);
@@ -928,13 +1053,13 @@ public class FileUploadController {
     /**
      * 调用Python微服务获取标点图片数据
      */
-    private String callPythonMicroservice(String imageBase64, String mediaType) throws Exception {
+    private String callPythonMicroservice(String mediaBase64, String mediaType) throws Exception {
         log.info("🐍 构造Python微服务请求体...");
 
         // 按照规范构造发送给Python微服务的请求体
         Map<String, Object> pythonRequest = new HashMap<>();
         pythonRequest.put("type", mediaType); // "image" 或 "video"
-        pythonRequest.put("data_base64", imageBase64);
+        pythonRequest.put("data_base64", mediaBase64);
 
         log.info("📤 准备发送请求到Python微服务 (http://127.0.0.1:5000/analyze)...");
 
@@ -963,7 +1088,7 @@ public class FileUploadController {
             log.info("   Body大小: {} 字符", requestBodyStr.length());
             log.info("   Body内容: {}", requestBodyStr);
 
-            okhttp3.MediaType mediaType = okhttp3.MediaType.parse("application/json; charset=utf-8");
+            MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
             RequestBody body = RequestBody.create(mediaType, requestBodyStr);
 
             Request request = new Request.Builder()
@@ -974,7 +1099,7 @@ public class FileUploadController {
 
             log.info("📤 发送请求到Python微服务...");
 
-            try (okhttp3.Response response = client.newCall(request).execute()) {
+            try (Response response = client.newCall(request).execute()) {
                 long endTime = System.currentTimeMillis();
                 long duration = endTime - startTime;
 
@@ -1032,7 +1157,7 @@ public class FileUploadController {
             log.info("   Body大小: {} 字符", requestBodyStr.length());
             log.info("   Body预览: {}", requestBodyStr.length() > 200 ? requestBodyStr.substring(0, 200) + "..." : requestBodyStr);
 
-            okhttp3.MediaType mediaType = okhttp3.MediaType.parse("application/json; charset=utf-8");
+            MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
             RequestBody body = RequestBody.create(mediaType, requestBodyStr);
 
             Request request = new Request.Builder()
@@ -1044,7 +1169,7 @@ public class FileUploadController {
 
             log.info("📤 发送HTTP请求...");
 
-            try (okhttp3.Response response = client.newCall(request).execute()) {
+            try (Response response = client.newCall(request).execute()) {
                 long endTime = System.currentTimeMillis();
                 long duration = endTime - startTime;
 
@@ -1086,9 +1211,9 @@ public class FileUploadController {
     }
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+    private final OkHttpClient client = new OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build();
 }
