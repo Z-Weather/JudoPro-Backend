@@ -4,6 +4,7 @@ import cn.edu.bistu.cs.ir.entity.UserFile;
 import cn.edu.bistu.cs.ir.model.User;
 import cn.edu.bistu.cs.ir.service.UserFileService;
 import cn.edu.bistu.cs.ir.service.UserService;
+import cn.edu.bistu.cs.ir.service.AIAnalysisService;
 import cn.edu.bistu.cs.ir.utils.FileUploadUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
@@ -51,7 +52,10 @@ public class FileUploadController {
 
     @Autowired
     private UserService userService;
-    
+
+    @Autowired
+    private AIAnalysisService aiAnalysisService;
+
     /**
      * 获取当前登录用户ID - 支持Session认证和Spring Security认证
      */
@@ -874,6 +878,12 @@ public class FileUploadController {
             mediaBase64 = convertMultipartFileToBase64(mediaFile);
             log.info("✅ Base64转换完成 - 长度: {} 字符", mediaBase64.length());
 
+            // 4. 创建AI分析记录
+            log.info("📝 步骤4: 创建AI分析记录...");
+            cn.edu.bistu.cs.ir.entity.AIAnalysis aiAnalysis = aiAnalysisService.createAnalysis(
+                userFile.getId(), userId, mediaType, prompt);
+            log.info("✅ AI分析记录创建成功 - 分析ID: {}", aiAnalysis.getId());
+
             // 初始化结果变量
             String externalModelResult = null;
             String pythonServiceResult = null;
@@ -917,8 +927,47 @@ public class FileUploadController {
                 throw e;
             }
 
-            // 3. 构造组合返回结果
-            log.info("🏗️  步骤3: 构造组合响应结果...");
+            // 3. 保存AI分析结果到数据库
+            log.info("💾 步骤3: 开始保存AI分析结果到数据库...");
+            try {
+                aiAnalysis = aiAnalysisService.saveAnalysisResults(
+                    aiAnalysis.getId(),
+                    externalModelResult,
+                    pythonServiceResult,
+                    annotatedMediaData
+                );
+                log.info("✅ AI分析结果保存成功 - 分��ID: {}", aiAnalysis.getId());
+
+                // 获取保存后的分析结果信息
+                String annotatedMediaUrl = aiAnalysis.getAnnotatedMediaUrl();
+                log.info("🎯 标注文件URL: {}", annotatedMediaUrl);
+
+                // 更新响应结果，添加分析结果信息
+                if (annotatedMediaUrl != null) {
+                    response.put("annotated_media_url", annotatedMediaUrl);
+                    response.put("annotated_filename", aiAnalysis.getAnnotatedFilename());
+                }
+
+                // 添加数据库中的分析结果信息
+                response.put("analysis_id", aiAnalysis.getId());
+                response.put("analysis_status", aiAnalysis.getAnalysisStatus());
+                response.put("analysis_time", aiAnalysis.getAnalysisTime());
+                response.put("saved_external_model_result", aiAnalysis.getExternalModelResult());
+                response.put("has_description", aiAnalysis.getExternalModelResult() != null && !aiAnalysis.getExternalModelResult().trim().isEmpty());
+
+                log.info("📊 数据库保存结果检查:");
+                log.info("   - 外部模型结果已保存: {}", aiAnalysis.getExternalModelResult() != null ? "✅" : "❌");
+                log.info("   - 标注文件已保存: {}", annotatedMediaUrl != null ? "✅" : "❌");
+                log.info("   - 分析ID: {}", aiAnalysis.getId());
+
+            } catch (Exception saveEx) {
+                log.error("❌ 保存AI分析结果失败: {}", saveEx.getMessage());
+                // 保存失败不影响返回结果，但记录错误
+                response.put("analysis_save_error", saveEx.getMessage());
+            }
+
+            // 4. 构造组合返回结果
+            log.info("🏗️  步骤4: 构造组合响应结果...");
             response.put("success", true);
             response.put("message", "双重分析成功");
             response.put("media_type", mediaType);
@@ -949,7 +998,10 @@ public class FileUploadController {
             log.info("   - Python标点{}: {}", mediaType, annotatedMediaData != null ? "✅" : "❌");
             log.info("   - 数据库文件ID: {}", userFile.getId());
             log.info("   - 文件存储URL: {}", userFile.getFileUrl());
-            log.info("✅ ===== 双重AI{}分析请求完成 =====", mediaType);
+            log.info("   - AI分析ID: {}", aiAnalysis.getId());
+            log.info("   - 分析状态: {}", aiAnalysis.getAnalysisStatus());
+            log.info("   - 标注文件URL: {}", aiAnalysis.getAnnotatedMediaUrl() != null ? "✅" : "❌");
+            log.info("✅ ===== 双重AI{}分析请求完成（含持久化） =====", mediaType);
 
         } catch (Exception e) {
             log.error("💥 ===== 双重AI{}分析请求失败 =====", mediaType);

@@ -38,16 +38,22 @@ public class FileUploadUtils {
         String uploadPath = fileUploadConfig.getAbsoluteUploadPath();
         String imagePath = fileUploadConfig.getImageUploadPath();
         String videoPath = fileUploadConfig.getVideoUploadPath();
+        String annotatedImagePath = fileUploadConfig.getAnnotatedImagePath();
+        String annotatedVideoPath = fileUploadConfig.getAnnotatedVideoPath();
 
         log.info("文件上传根目录: {}", uploadPath);
         log.info("图片上传目录: {}", imagePath);
         log.info("视频上传目录: {}", videoPath);
+        log.info("标注图片目录: {}", annotatedImagePath);
+        log.info("标注视频目录: {}", annotatedVideoPath);
 
         createDirectoryIfNotExists(uploadPath);
         createDirectoryIfNotExists(imagePath);
         createDirectoryIfNotExists(videoPath);
+        createDirectoryIfNotExists(annotatedImagePath);
+        createDirectoryIfNotExists(annotatedVideoPath);
 
-        log.info("✅ 目录初始化完成");
+        log.info("✅ 目录初始化完成（包含标注文件目录）");
     }
     
     /**
@@ -228,7 +234,124 @@ public class FileUploadUtils {
         }
         return null;
     }
-    
+
+    /**
+     * 从Base64字符串保存标注文件
+     * @param base64Data Base64编码的文件数据（可能包含MIME前缀）
+     * @param mediaType 媒体类型（image/video）
+     * @param originalExtension 原始文件扩展名
+     * @return 文件访问URL和存储文件名信息
+     * @throws IOException 文件保存异常
+     */
+    public AnnotatedFileResult saveAnnotatedFile(String base64Data, String mediaType, String originalExtension) throws IOException {
+        log.info("🔄 开始保存{}标注文件，原始扩展名: {}", mediaType, originalExtension);
+
+        try {
+            // 移除MIME前缀（如果存在）
+            String cleanBase64Data = extractBase64FromDataUrl(base64Data);
+            log.info("📝 Base64数据清理完成，长度: {} 字符", cleanBase64Data.length());
+
+            // Base64解码
+            byte[] fileBytes = java.util.Base64.getDecoder().decode(cleanBase64Data);
+            log.info("📦 Base64解码完成，文件大小: {} bytes", fileBytes.length);
+
+            // 直接使用标注文件目录
+            String annotatedPath;
+            String urlType;
+            if ("image".equals(mediaType)) {
+                annotatedPath = fileUploadConfig.getAnnotatedImagePath();
+                urlType = "annotated_images";
+                log.info("🖼️  图片标注文件，存储路径: {}", annotatedPath);
+            } else if ("video".equals(mediaType)) {
+                annotatedPath = fileUploadConfig.getAnnotatedVideoPath();
+                urlType = "annotated_videos";
+                log.info("🎬 视频标注文件，存储路径: {}", annotatedPath);
+            } else {
+                throw new IllegalArgumentException("不支持的媒体类型: " + mediaType);
+            }
+
+            // 确保标注文件目录存在
+            createDirectoryIfNotExists(annotatedPath);
+
+            // 生成唯一文件名：annotated_时间戳_UUID.扩展名
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+            String uuid = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+            String annotatedFilename = "annotated_" + timestamp + "_" + uuid + "." + originalExtension;
+
+            // 保存文件
+            Path filePath = Paths.get(annotatedPath, annotatedFilename);
+            Files.write(filePath, fileBytes);
+
+            // 生成访问URL
+            String accessUrl = "/uploads/" + urlType + "/" + annotatedFilename;
+
+            log.info("✅ {}标注文件保存成功", mediaType);
+            log.info("📁 存储路径: {}", filePath.toAbsolutePath());
+            log.info("🔗 访问URL: {}", accessUrl);
+            log.info("📊 文件大小: {} bytes", fileBytes.length);
+
+            return new AnnotatedFileResult(accessUrl, annotatedFilename, fileBytes.length);
+
+        } catch (IllegalArgumentException e) {
+            log.error("❌ Base64数据格式错误: {}", e.getMessage());
+            throw new IllegalArgumentException("Base64数据格式错误: " + e.getMessage());
+        } catch (IOException e) {
+            log.error("❌ 保存{}标注文件失败: {}", mediaType, e.getMessage());
+            throw new IOException("保存" + mediaType + "标注文件失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 从Data URL格式中提取纯Base64数据
+     * @param dataUrl 可能包含MIME前缀的Base64数据
+     * @return 纯Base64数据
+     */
+    private String extractBase64FromDataUrl(String dataUrl) {
+        if (dataUrl == null || dataUrl.isEmpty()) {
+            throw new IllegalArgumentException("Base64数据不能为空");
+        }
+
+        // 检查是否包含MIME前缀（如: "data:image/jpeg;base64,"）
+        if (dataUrl.contains(",")) {
+            String[] parts = dataUrl.split(",", 2);
+            if (parts.length == 2) {
+                log.info("📋 检测到MIME前缀: {}", parts[0]);
+                return parts[1];
+            }
+        }
+
+        return dataUrl;
+    }
+
+    /**
+     * 标注文件保存结果
+     */
+    public static class AnnotatedFileResult {
+        private String fileUrl;
+        private String filename;
+        private long fileSize;
+
+        public AnnotatedFileResult(String fileUrl, String filename, long fileSize) {
+            this.fileUrl = fileUrl;
+            this.filename = filename;
+            this.fileSize = fileSize;
+        }
+
+        public String getFileUrl() { return fileUrl; }
+        public String getFilename() { return filename; }
+        public long getFileSize() { return fileSize; }
+
+        public String getFormattedFileSize() {
+            if (fileSize < 1024) {
+                return fileSize + " B";
+            } else if (fileSize < 1024 * 1024) {
+                return String.format("%.1f KB", fileSize / 1024.0);
+            } else {
+                return String.format("%.1f MB", fileSize / (1024.0 * 1024.0));
+            }
+        }
+    }
+
     /**
      * 文件信息类
      */
