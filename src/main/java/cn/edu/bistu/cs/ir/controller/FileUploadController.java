@@ -156,21 +156,30 @@ public class FileUploadController {
     }
     
     /**
-     * 上传图片
+     * 上传图片 - 支持条件式AI分析
      */
     @PostMapping("/upload/image")
     public ResponseEntity<Map<String, Object>> uploadImage(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam(value = "category", required = false, defaultValue = "general") String category,
+            @RequestParam(value = "is_analysis_requested", required = false, defaultValue = "false") Boolean isAnalysisRequested,
             Authentication authentication,
             HttpServletRequest request) {
 
-        log.info("=== 图片上传API调用 ===");
+        log.info("=== 图片上传API调用（支持条件式AI分析） ===");
         log.info("文件名: {}", file != null ? file.getOriginalFilename() : "null");
         log.info("文件大小: {} bytes", file != null ? file.getSize() : "null");
         log.info("描述: {}", description);
         log.info("分类: {}", category);
+        log.info("🤖 AI分析请求: {}", isAnalysisRequested ? "是" : "否");
+
+        // 记录关键数据流状态
+        if (isAnalysisRequested) {
+            log.info("🔥 将启动AI分析工作流：Multipart-to-Base64转换 -> 并行调用模型 -> 数据持久化");
+        } else {
+            log.info("📁 仅执行文件上传和基础存储，跳过AI分析");
+        }
 
         Map<String, Object> response = new HashMap<>();
 
@@ -196,21 +205,40 @@ public class FileUploadController {
             UserFile userFile = userFileService.saveImageFile(userId, file, fileUrl);
             log.info("文件信息保存成功，数据库ID: {}", userFile.getId());
 
-            response.put("success", true);
-            response.put("message", "图片上传成功");
-            response.put("data", Map.of(
-                "id", userFile.getId(),
-                "url", userFile.getFileUrl(),
-                "filename", userFile.getOriginalFilename(),
-                "size", userFile.getFormattedFileSize(),
-                "type", "image",
-                "uploadTime", userFile.getUploadTime(),
-                "description", description != null ? description : "",
-                "category", category,
-                "downloadCount", userFile.getDownloadCount()
-            ));
+            // 条件式AI分析逻辑
+            Map<String, Object> analysisData = null;
+            if (isAnalysisRequested) {
+                log.info("🔥 ===== 开始条件式AI分析 =====");
+                analysisData = performConditionalAnalysis(userFile, file, "image", authentication, request);
+                log.info("✅ ===== 条件式AI分析完成 =====");
+            } else {
+                log.info("⏭️ 跳过AI分析，仅返回文件上传结果");
+            }
 
-            log.info("✅ 图片上传完成，文件ID: {}, URL: {}", userFile.getId(), userFile.getFileUrl());
+            // 构造响应数据
+            Map<String, Object> responseData = new HashMap<>();
+            responseData.put("id", userFile.getId());
+            responseData.put("url", userFile.getFileUrl());
+            responseData.put("filename", userFile.getOriginalFilename());
+            responseData.put("size", userFile.getFormattedFileSize());
+            responseData.put("type", "image");
+            responseData.put("uploadTime", userFile.getUploadTime());
+            responseData.put("description", description != null ? description : "");
+            responseData.put("category", category);
+            responseData.put("downloadCount", userFile.getDownloadCount());
+
+            // 如果进行了AI分析，添加分析结果
+            if (analysisData != null) {
+                responseData.put("ai_analysis", analysisData);
+                log.info("📊 AI分析结果已添加到响应数据中");
+            }
+
+            response.put("success", true);
+            response.put("message", isAnalysisRequested ? "图片上传并AI分析完成" : "图片上传成功");
+            response.put("data", responseData);
+
+            log.info("✅ 图片上传{}完成，文件ID: {}, URL: {}",
+                isAnalysisRequested ? "及AI分析" : "", userFile.getId(), userFile.getFileUrl());
             return ResponseEntity.ok(response);
 
         } catch (IllegalArgumentException e) {
@@ -234,40 +262,79 @@ public class FileUploadController {
     }
     
     /**
-     * 上传视频
+     * 上传视频 - 支持条件式AI分析
      */
     @PostMapping("/upload/video")
     public ResponseEntity<Map<String, Object>> uploadVideo(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "description", required = false) String description,
+            @RequestParam(value = "is_analysis_requested", required = false, defaultValue = "false") Boolean isAnalysisRequested,
             Authentication authentication,
             HttpServletRequest request) {
+
+        log.info("=== 视频上传API调用（支持条件式AI分析） ===");
+        log.info("文件名: {}", file != null ? file.getOriginalFilename() : "null");
+        log.info("文件大小: {} bytes", file != null ? file.getSize() : "null");
+        log.info("描述: {}", description);
+        log.info("🤖 AI分析请求: {}", isAnalysisRequested ? "是" : "否");
+
+        // 记录关键数据流状态
+        if (isAnalysisRequested) {
+            log.info("🔥 将启动AI分析工作流：Multipart-to-Base64转换 -> 并行调用模型 -> 数据持久化");
+        } else {
+            log.info("📁 仅执行文件上传和基础存储，跳过AI分析");
+        }
 
         Map<String, Object> response = new HashMap<>();
 
         try {
             // 获取当前用户ID
             Long userId = getCurrentUserId(authentication, request);
+            log.info("当前用户ID: {}", userId);
 
             // 上传文件到服务器
+            log.info("开始上传视频文件到服务器...");
             String fileUrl = fileUploadUtils.uploadVideo(file);
+            log.info("视频文件上传成功，URL: {}", fileUrl);
 
             // 上传视频并保存到数据库
+            log.info("开始保存视频文件信息到数据库...");
             UserFile userFile = userFileService.saveVideoFile(userId, file, fileUrl);
+            log.info("视频文件信息保存成功，数据库ID: {}", userFile.getId());
+
+            // 条件式AI分析逻辑
+            Map<String, Object> analysisData = null;
+            if (isAnalysisRequested) {
+                log.info("🔥 ===== 开始条件式AI分析 =====");
+                analysisData = performConditionalAnalysis(userFile, file, "video", authentication, request);
+                log.info("✅ ===== 条件式AI分析完成 =====");
+            } else {
+                log.info("⏭️ 跳过AI分析，仅返回文件上传结果");
+            }
+
+            // 构造响应数据
+            Map<String, Object> responseData = new HashMap<>();
+            responseData.put("id", userFile.getId());
+            responseData.put("url", userFile.getFileUrl());
+            responseData.put("filename", userFile.getOriginalFilename());
+            responseData.put("size", userFile.getFormattedFileSize());
+            responseData.put("type", "video");
+            responseData.put("uploadTime", userFile.getUploadTime());
+            responseData.put("description", description != null ? description : "");
+            responseData.put("downloadCount", userFile.getDownloadCount());
+
+            // 如果进行了AI分析，添加分析结果
+            if (analysisData != null) {
+                responseData.put("ai_analysis", analysisData);
+                log.info("📊 AI分析结果已添加到响应数据中");
+            }
 
             response.put("success", true);
-            response.put("message", "视频上传成功");
-            response.put("data", Map.of(
-                "id", userFile.getId(),
-                "url", userFile.getFileUrl(),
-                "filename", userFile.getOriginalFilename(),
-                "size", userFile.getFormattedFileSize(),
-                "type", "video",
-                "uploadTime", userFile.getUploadTime(),
-                "description", description != null ? description : "",
-                "downloadCount", userFile.getDownloadCount()
-            ));
+            response.put("message", isAnalysisRequested ? "视频上传并AI分析完成" : "视频上传成功");
+            response.put("data", responseData);
 
+            log.info("✅ 视频上传{}完成，文件ID: {}, URL: {}",
+                isAnalysisRequested ? "及AI分析" : "", userFile.getId(), userFile.getFileUrl());
             return ResponseEntity.ok(response);
 
         } catch (IllegalArgumentException e) {
@@ -1473,6 +1540,114 @@ public class FileUploadController {
             log.warn("⚠️ JSON解析失败，返回完整原始内容，长度: {} 字符", externalModelResult.length());
             return externalModelResult;
         }
+    }
+
+    /**
+     * 执行条件式AI分析
+     * 调用现有的/api/file/analyze接口，避免重复实现
+     *
+     * @param userFile 已保存的��户文件信息
+     * @param mediaFile MultipartFile格式的媒体文件
+     * @param mediaType 媒体类型 (image/video)
+     * @param authentication 用户认证信息
+     * @param request HTTP请求对象
+     * @return AI分析结果数据，包含源文件、标记文件、文字描述的元数据
+     */
+    private Map<String, Object> performConditionalAnalysis(UserFile userFile, MultipartFile mediaFile,
+                                                          String mediaType, Authentication authentication,
+                                                          HttpServletRequest request) {
+        log.info("🚀 开始条件式AI分析 - 调用现有/api/file/analyze接口，媒体类型: {}", mediaType);
+
+        Map<String, Object> analysisResult = new HashMap<>();
+
+        try {
+            // 使用任务指示中的外部模型Prompt
+            String prompt = getExternalModelPrompt();
+            log.info("📝 使用外部模型Prompt: {} 字符", prompt.length());
+
+            // 直接调用现有的analyze接口，避免重复实现AI分析逻辑
+            log.info("🔄 调用现有/api/file/analyze接口...");
+            ResponseEntity<Map<String, Object>> analyzeResponse = analyzeMedia(mediaFile, prompt, userFile.getOriginalFilename());
+
+            if (analyzeResponse.getStatusCode().is2xxSuccessful()) {
+                Map<String, Object> responseData = analyzeResponse.getBody();
+                log.info("✅ /api/file/analyze接口调用成功");
+
+                // 从响应中提取分析数据
+                if (responseData != null && responseData.containsKey("data")) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = (Map<String, Object>) responseData.get("data");
+
+                    // 直接使用analyze接口返回的标准化数据
+                    analysisResult.put("source_file", data.get("source_file"));
+                    analysisResult.put("marked_file", data.get("marked_file"));
+                    analysisResult.put("text_description", data.get("text_description"));
+                    analysisResult.put("analysis_id", responseData.get("analysis_id"));
+                    analysisResult.put("analysis_status", responseData.get("analysis_status"));
+                    analysisResult.put("analysis_time", responseData.get("analysis_time"));
+
+                    log.info("✅ AI分析数据提取完成 - 源文件: {}, 标记文件: {}, 文本描述: {}",
+                        data.get("source_file") != null ? "✅" : "❌",
+                        data.get("marked_file") != null ? "✅" : "❌",
+                        data.get("text_description") != null ? "✅" : "❌");
+                } else {
+                    log.error("❌ /api/file/analyze接口返回数据格式异常");
+                    analysisResult.put("error", "分析接口返回数据格式异常");
+                    analysisResult.put("analysis_status", "failed");
+                }
+            } else {
+                log.error("❌ /api/file/analyze接口调用失败，状态码: {}", analyzeResponse.getStatusCode());
+                analysisResult.put("error", "分析接口调用失败，状态码: " + analyzeResponse.getStatusCode());
+                analysisResult.put("analysis_status", "failed");
+            }
+
+            return analysisResult;
+
+        } catch (Exception e) {
+            log.error("💥 条件式AI分析执行失败 - 媒体类型: {}", mediaType, e);
+
+            // 返回失败状态
+            analysisResult.put("error", "AI分析失败: " + e.getMessage());
+            analysisResult.put("analysis_status", "failed");
+            return analysisResult;
+        }
+    }
+
+    /**
+     * 获取外部模型分析Prompt
+     * 使用任务指示中提供的专业柔道分析Prompt
+     */
+    private String getExternalModelPrompt() {
+        return "# 角色设定\n" +
+            "你是一位国际级柔道裁判和高性能教练。请基于所提供的柔道比赛图片或视频，进行专业分析。\n\n" +
+            "# ⚡️ 关键限速指令：处理时限\n" +
+            "**为防止后端超时，你必须快速完成分析和生成，理想完成时间在 30 秒以内。** 请务必遵守以下限制以提高速度：\n" +
+            "1. **仅分析最关键的瞬间**：如果是视频，只分析动作最高潮或最决定性的序列。\n" +
+            "2. **所有依据和描述必须简洁**：优先保证技术准确性，避免冗余的叙述。\n" +
+            "3. **禁止臆测**：只关注画面中视觉确认的要素，不要对模糊细节进行深入推导。\n\n" +
+            "# 分析目标\n" +
+            "场上有两名运动员：**白衣服运动员** 和 **蓝衣服运动员**。请分别对两名运动员的表现进行独立分析和评价。\n\n" +
+            "# 输出要求：结构化评分与文本\n" +
+            "请严格按照以下结构化模板，用中文输出一份全面的分析报告。所有评分均采用 10 分制（10 分为满分）。\n\n" +
+            "## 1. 详细评分 (Detailed Scoring)\n" +
+            "请为每位运动员给出**恰好四项独立的评分**，并为每项评分提供**一句简洁的**依据阐述。\n\n" +
+            "* **白方运动员 (White Uniform) 评分**:\n" +
+            "    * 动作形态评分: (X/10) - 评分依据\n" +
+            "    * 重心破坏评分: (X/10) - 评分依据\n" +
+            "    * 投入配合评分: (X/10) - 评分依据\n" +
+            "    * 战术决策评分: (X/10) - 评分依据\n\n" +
+            "* **蓝方运动员 (Blue Uniform) 评分**:\n" +
+            "    * 动作形态评分: (Y/10) - 评分依据\n" +
+            "    * 重心破坏评分: (Y/10) - 评分依据\n" +
+            "    * 投入配合评分: (Y/10) - 评分依据\n" +
+            "    * 战术决策评分: (Y/10) - 评分依据\n\n" +
+            "## 2. 文字描述 (Textual Analysis)\n\n" +
+            "### 2.1 双方运动员动作解析\n" +
+            "详细解析技术动作的序列和过程，明确识别主要技术动作，并评估执行成功率。**请将描述控制在三句话以内，突出重点。**\n\n" +
+            "### 2.2 双方运动员赛后训练建议 (三条)\n" +
+            "请为**每位**运动员给出**恰好三条**具体且可执行的赛后训练建议。建议必须涵盖技术、体能或策略方面的提升。\n\n" +
+            "# 语言限定\n" +
+            "所有最终输出，包括评分、评分依据和详细文本部分，必须全部使用**中文**。";
     }
 
     private final ObjectMapper objectMapper = new ObjectMapper();
