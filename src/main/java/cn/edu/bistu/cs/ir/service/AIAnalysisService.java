@@ -62,11 +62,11 @@ public class AIAnalysisService {
      * @param analysisId 分析记录ID
      * @param externalModelResult 外部模型结果
      * @param pythonServiceResult Python微服务结果JSON字符串（用于处理，不存储到数据库）
-     * @param annotatedMediaData 标注媒体的Base64数据
+     * @param annotatedMediaUrl 标注媒体文件的URL（已由FileUploadController下载并保存）
      * @return 更新后的分析记录
      */
     public AIAnalysis saveAnalysisResults(Long analysisId, String externalModelResult,
-                                        String pythonServiceResult, String annotatedMediaData) {
+                                        String pythonServiceResult, String annotatedMediaUrl) {
         log.info("💾 开始保存AI分析结果 - 分析ID: {}", analysisId);
 
         try {
@@ -96,12 +96,22 @@ public class AIAnalysisService {
             log.info("🗑️ 跳过Python微服务结果存储（避免Base64数据占用数据库空间）");
             log.debug("📊 Python微服务结果原始长度: {} 字符（已舍弃）", pythonServiceResult != null ? pythonServiceResult.length() : 0);
 
-            // 处理标注文件保存
-            if (annotatedMediaData != null && !annotatedMediaData.trim().isEmpty()) {
-                log.info("🖼️ 开始处理标注文件保存");
-                saveAnnotatedMediaFile(analysis, annotatedMediaData);
+            // 处理标注文件URL
+            if (annotatedMediaUrl != null && !annotatedMediaUrl.trim().isEmpty()) {
+                log.info("🖼️ 开始处理标注文件URL更新");
+                log.info("🔗 标注文件URL: {}", annotatedMediaUrl);
+
+                // 从URL提取文件名
+                String filename = extractFilenameFromUrl(annotatedMediaUrl);
+                log.info("📁 提取的文件名: {}", filename);
+
+                // 直接更新分析记录的标注文件信息
+                analysis.setAnnotatedMediaUrl(annotatedMediaUrl);
+                analysis.setAnnotatedFilename(filename);
+
+                log.info("✅ 标注文件URL信息已更新到分析记录");
             } else {
-                log.info("📝 无标注文件数据，仅保存文本结果");
+                log.info("📝 无标注文件URL，仅保存文本结果");
             }
 
             // 标记分析完成
@@ -341,6 +351,34 @@ public class AIAnalysisService {
     public List<Object[]> getStatusStatisticsByUserId(Long userId) {
         log.info("📊 获取用户ID {} 的分析状态统计", userId);
         return aiAnalysisRepository.countByUserIdGroupByStatus(userId);
+    }
+
+    /**
+     * 从URL提取文件名
+     * @param url 文件URL
+     * @return 文件名
+     */
+    private String extractFilenameFromUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return "unknown";
+        }
+
+        // 移除查询参数
+        int queryIndex = url.indexOf('?');
+        if (queryIndex > 0) {
+            url = url.substring(0, queryIndex);
+        }
+
+        // 提取文件名
+        int lastSlash = url.lastIndexOf('/');
+        if (lastSlash >= 0 && lastSlash < url.length() - 1) {
+            String filename = url.substring(lastSlash + 1);
+            log.info("📝 从URL提取文件名: {} -> {}", url, filename);
+            return filename;
+        }
+
+        log.warn("⚠️ 无法从URL提取文件名: {}", url);
+        return "unknown";
     }
 
     /**

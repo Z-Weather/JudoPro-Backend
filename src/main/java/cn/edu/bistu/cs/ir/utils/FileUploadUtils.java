@@ -384,4 +384,69 @@ public class FileUploadUtils {
             }
         }
     }
+
+    /**
+     * 保存标注文件的字节数组版本
+     * @param fileBytes 文件字节数组
+     * @param mediaType 媒体类型
+     * @param originalFilename 原始文件名
+     * @return 标注文件结果
+     * @throws IOException 保存异常
+     */
+    public AnnotatedFileResult saveAnnotatedFileFromBytes(byte[] fileBytes, String mediaType, String originalFilename) throws IOException {
+        log.info("🔄 开始保存{}标注文件（字节数组版本），原始文件名: {}", mediaType, originalFilename);
+        log.info("📊 接收到的数据大小: {} bytes", fileBytes.length);
+
+        try {
+            // 生成唯一的文件名，保留原始扩展名
+            String originalExtension = getFileExtension(originalFilename);
+            if (originalExtension == null || originalExtension.isEmpty()) {
+                originalExtension = "jpg"; // 默认扩展名
+            }
+            String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date());
+            String randomSuffix = String.format("%04d", new java.util.Random().nextInt(10000));
+            String annotatedFilename = String.format("annotated_%s_%s.%s", timestamp, randomSuffix, originalExtension);
+
+            // 选择正确的存储路径
+            String annotatedPath;
+            String urlType;
+            if ("image".equals(mediaType)) {
+                annotatedPath = fileUploadConfig.getAnnotatedImagePath();
+                urlType = "annotated_images";
+                log.info("🖼️  图片标注文件，存储路径: {}", annotatedPath);
+            } else if ("video".equals(mediaType)) {
+                annotatedPath = fileUploadConfig.getAnnotatedVideoPath();
+                urlType = "annotated_videos";
+                log.info("🎬 视频标注文件，存储路径: {}", annotatedPath);
+            } else {
+                log.error("❌ 不支持的媒体类型: {}", mediaType);
+                throw new IllegalArgumentException("不支持的媒体类型: " + mediaType);
+            }
+
+            // 确保目录存在
+            java.io.File dir = new java.io.File(annotatedPath);
+            if (!dir.exists()) {
+                dir.mkdirs();
+                log.info("📁 创建目录: {}", annotatedPath);
+            }
+
+            // 保存文件
+            Path filePath = Paths.get(annotatedPath, annotatedFilename);
+            Files.write(filePath, fileBytes);
+
+            // 生成访问URL
+            String accessUrl = "/uploads/" + urlType + "/" + annotatedFilename;
+
+            log.info("✅ {}标注文件保存成功", mediaType);
+            log.info("📁 存储路径: {}", filePath.toAbsolutePath());
+            log.info("🔗 访问URL: {}", accessUrl);
+            log.info("📊 文件大小: {} bytes", fileBytes.length);
+
+            return new AnnotatedFileResult(accessUrl, annotatedFilename, fileBytes.length);
+
+        } catch (IOException e) {
+            log.error("❌ 保存{}标注文件失败: {}", mediaType, e.getMessage());
+            throw new IOException("保存标注文件失败: " + e.getMessage(), e);
+        }
+    }
 }

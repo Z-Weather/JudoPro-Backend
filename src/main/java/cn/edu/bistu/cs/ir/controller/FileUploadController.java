@@ -966,7 +966,9 @@ public class FileUploadController {
             String annotatedMediaData = null;
             String annotatedMediaUrl = null;
 
-            log.info("🔄 ===== 开始并行调用两个模型 =====");
+            log.info("🔄 ===== 开始AI分析工作流 =====");
+            log.info("📋 工作流概述: 接收文件 → 调用模型 → 下载标注文件 → 保存到后端 → 更新数据库");
+            log.info("📊 文件信息: 类型={}, 大小={}bytes", mediaType, mediaFile.getSize());
 
             // 1. 调用外部模型（火山引擎）获取文字说明
             log.info("🔥 步骤1: 开始调用外部模型获取{}文字说明...", mediaType);
@@ -996,10 +998,39 @@ public class FileUploadController {
                 if (annotatedFileUrl != null && !annotatedFileUrl.isEmpty()) {
                     log.info("✅ Python微服务返回标注文件URL: {}", annotatedFileUrl);
                     log.info("✅ 标注文件名: {}", annotatedFilename);
-                    annotatedMediaUrl = annotatedFileUrl;
+
+                    // 从URL下载文件并保存到后端
+                    try {
+                        log.info("🔄 开始从URL下载标注文件...");
+                        log.info("📡 微服务URL: {}", annotatedFileUrl);
+                        byte[] fileBytes = downloadFileFromUrl(annotatedFileUrl, mediaType);
+
+                        if (fileBytes != null && fileBytes.length > 0) {
+                            // 使用FileUploadUtils保存到正确的后端目录
+                            FileUploadUtils.AnnotatedFileResult result = fileUploadUtils.saveAnnotatedFileFromBytes(
+                                fileBytes, mediaType, annotatedFilename
+                            );
+
+                            annotatedMediaUrl = result.getFileUrl();
+                            log.info("✅ 标注文件已保存到后端: {}", annotatedMediaUrl);
+                            log.info("📊 文件大小: {} bytes", fileBytes.length);
+                            log.info("📁 保存的文件名: {}", result.getFilename());
+
+                            // 数据库更新将在后续的saveAnalysisResults方法中处理
+                            log.info("💾 数据库更新将在AIAnalysisService中处理");
+
+                        } else {
+                            log.error("❌ 下载的文件为空");
+                            throw new RuntimeException("下载的文件为空");
+                        }
+                    } catch (Exception downloadException) {
+                        log.error("❌ 从URL下载文件失败: {}", downloadException.getMessage(), downloadException);
+                        throw new RuntimeException("从URL下载标注文件失败: " + downloadException.getMessage());
+                    }
+
                     annotatedMediaData = null; // 不再需要Base64数据
                 } else {
-                    log.warn("��️ Python微服务未返回标注文件URL");
+                    log.warn("⚠️ Python微服务未返回标注文件URL");
                     // 兼容旧格式Base64返回
                     if ("image".equals(mediaType)) {
                         annotatedMediaData = (String) pythonServiceData.get("image_base64_data");
@@ -1024,15 +1055,29 @@ public class FileUploadController {
                     aiAnalysis.getId(),
                     externalModelResult,
                     pythonServiceResult,
-                    annotatedMediaData
+                    annotatedMediaUrl   // 传递已保存的文件URL
                 );
-                log.info("✅ AI分析结果保存成功 - 分��ID: {}", aiAnalysis.getId());
+                log.info("✅ AI分析结果保存成功 - 分析ID: {}", aiAnalysis.getId());
+                log.info("📊 数据库记录更新完成:");
+                log.info("   - 分析状态: {}", aiAnalysis.getAnalysisStatus());
+                log.info("   - 外部模型结果长度: {} 字符",
+                    aiAnalysis.getExternalModelResult() != null ? aiAnalysis.getExternalModelResult().length() : 0);
+                log.info("   - 标注文件URL: {}", aiAnalysis.getAnnotatedMediaUrl());
+                log.info("   - 标注文件名: {}", aiAnalysis.getAnnotatedFilename());
 
                 // 确保使用正确的标注文件URL
                 if (annotatedMediaUrl == null) {
                     annotatedMediaUrl = aiAnalysis.getAnnotatedMediaUrl();
+                    log.info("🔧 从数据库记录更新标注文件URL: {}", annotatedMediaUrl);
                 }
-                log.info("🎯 标注文件URL: {}", annotatedMediaUrl);
+                log.info("🎯 最终标注文件URL: {}", annotatedMediaUrl);
+
+                // 工作流完成总结
+                log.info("🎉 ===== AI分析工作流完成 =====");
+                log.info("✅ 工作流状态: 成功完成");
+                log.info("📁 标注文件已保存到后端目录: {}", annotatedMediaUrl);
+                log.info("💾 数据库记录已更新: 分析ID={}", aiAnalysis.getId());
+                log.info("🔗 前端可访问URL: {}", annotatedMediaUrl);
 
                 // 更新响应结果，添加分析结果信息
                 if (annotatedMediaUrl != null) {
@@ -1676,6 +1721,40 @@ public class FileUploadController {
             "请为**每位**运动员给出**恰好三条**具体且可执行的赛后训练建议。建议必须涵盖技术、体能或策略方面的提升。\n\n" +
             "# 语言限定\n" +
             "所有最终输出，包括评分、评分依据和详细文本部分，必须全部使用**中文**。";
+    }
+
+    /**
+     * 从URL下载文件
+     * @param fileUrl 文件URL
+     * @param mediaType 媒体类型
+     * @return 文件字节数组
+     * @throws Exception 下载异常
+     */
+    private byte[] downloadFileFromUrl(String fileUrl, String mediaType) throws Exception {
+        log.info("🔄 开始下载{}文件: {}", mediaType, fileUrl);
+        long startTime = System.currentTimeMillis();
+
+        Request request = new Request.Builder()
+            .url(fileUrl)
+            .get()
+            .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("下载失败: HTTP " + response.code() + " " + response.message());
+            }
+
+            byte[] fileBytes = response.body().bytes();
+            long duration = System.currentTimeMillis() - startTime;
+            double fileSizeMB = fileBytes.length / 1024.0 / 1024.0;
+
+            log.info("✅ {}文件下载完成:", mediaType);
+            log.info("   文件大小: {:.2f} MB", fileSizeMB);
+            log.info("   下载耗时: {} ms", duration);
+            log.info("   下载速度: {:.2f} MB/s", fileSizeMB / (duration / 1000.0));
+
+            return fileBytes;
+        }
     }
 
     private final ObjectMapper objectMapper = new ObjectMapper();
