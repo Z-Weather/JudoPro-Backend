@@ -867,11 +867,18 @@ public class FileUploadController {
     @PostMapping("/analyze")
     public ResponseEntity<Map<String, Object>> analyzeMedia(
             @RequestParam("file") MultipartFile mediaFile,
-            @RequestParam("prompt") String prompt,
+            @RequestParam(value = "prompt", required = false) String prompt,
             @RequestParam(value = "description", required = false) String description) {
 
         log.info("🎯 ===== 开始双重AI分析请求 =====");
-        log.info("📝 提示词: {}", prompt);
+
+        // 如果未提供提示词，使用写死的专业柔道分析提���词
+        if (prompt == null || prompt.trim().isEmpty()) {
+            prompt = getExternalModelPrompt();
+            log.info("📝 使用默认专业柔道分析提示词: {} 字符", prompt.length());
+        } else {
+            log.info("📝 使用自定义提示词: {}", prompt);
+        }
         log.info("📁 文件名: {}", mediaFile.getOriginalFilename());
         log.info("📊 文件大小: {} bytes", mediaFile.getSize());
         log.info("📄 MIME类型: {}", mediaFile.getContentType());
