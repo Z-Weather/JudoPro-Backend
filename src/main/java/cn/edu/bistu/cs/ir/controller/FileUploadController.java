@@ -7,6 +7,7 @@ import cn.edu.bistu.cs.ir.service.UserFileService;
 import cn.edu.bistu.cs.ir.service.UserService;
 import cn.edu.bistu.cs.ir.service.AIAnalysisService;
 import cn.edu.bistu.cs.ir.utils.FileUploadUtils;
+import cn.edu.bistu.cs.ir.config.VolcengineConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
 
@@ -56,6 +57,9 @@ public class FileUploadController {
 
     @Autowired
     private AIAnalysisService aiAnalysisService;
+
+    @Autowired
+    private VolcengineConfig volcengineConfig;
 
     /**
      * 获取当前登录用户ID - 支持Session认证和Spring Security认证
