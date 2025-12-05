@@ -964,6 +964,7 @@ public class FileUploadController {
             String pythonServiceResult = null;
             Map<String, Object> pythonServiceData = null;
             String annotatedMediaData = null;
+            String annotatedMediaUrl = null;
 
             log.info("🔄 ===== 开始并行调用两个模型 =====");
 
@@ -988,22 +989,33 @@ public class FileUploadController {
                 Integer code = (Integer) pythonServiceData.get("code");
                 String resultType = (String) pythonServiceData.get("result_type");
 
-                // 根据媒体类型提取标点数据
-                if ("image".equals(mediaType)) {
-                    annotatedMediaData = (String) pythonServiceData.get("image_base64_data");
-                } else if ("video".equals(mediaType)) {
-                    annotatedMediaData = (String) pythonServiceData.get("video_base64_data");
+                // 根据媒体类型提取标注文件URL
+                String annotatedFileUrl = (String) pythonServiceData.get("annotated_file_url");
+                String annotatedFilename = (String) pythonServiceData.get("annotated_filename");
+
+                if (annotatedFileUrl != null && !annotatedFileUrl.isEmpty()) {
+                    log.info("✅ Python微服务返回标注文件URL: {}", annotatedFileUrl);
+                    log.info("✅ 标注文件名: {}", annotatedFilename);
+                    annotatedMediaUrl = annotatedFileUrl;
+                    annotatedMediaData = null; // 不再需要Base64数据
+                } else {
+                    log.warn("��️ Python微服务未返回标注文件URL");
+                    // 兼容旧格式Base64返回
+                    if ("image".equals(mediaType)) {
+                        annotatedMediaData = (String) pythonServiceData.get("image_base64_data");
+                    } else if ("video".equals(mediaType)) {
+                        annotatedMediaData = (String) pythonServiceData.get("video_base64_data");
+                    }
                 }
 
-                log.info("📊 Python响应解析 - code: {}, result_type: {}, 是否有标点{}数据: {}",
-                    code, resultType, mediaType, annotatedMediaData != null && !annotatedMediaData.isEmpty());
+                log.info("📊 Python响应解析 - code: {}, result_type: {}, 标注URL: {}",
+                    code, resultType, annotatedMediaUrl);
+                log.info("📊 标注数据获取方式: {}",
+                    annotatedMediaUrl != null ? "文件URL引用" : "Base64数据(兼容)");
             } catch (Exception e) {
                 log.error("❌ Python微服务调用失败: {}", e.getMessage());
                 throw e;
             }
-
-            // 声明标注文件URL变量（用于后续响应构造）
-            String annotatedMediaUrl = null;
 
             // 3. 保存AI分析结果到数据库
             log.info("💾 步骤3: 开始保存AI分析结果到数据库...");
@@ -1016,8 +1028,10 @@ public class FileUploadController {
                 );
                 log.info("✅ AI分析结果保存成功 - 分��ID: {}", aiAnalysis.getId());
 
-                // 获取保存后的分析结果信息
-                annotatedMediaUrl = aiAnalysis.getAnnotatedMediaUrl();
+                // 确保使用正确的标注文件URL
+                if (annotatedMediaUrl == null) {
+                    annotatedMediaUrl = aiAnalysis.getAnnotatedMediaUrl();
+                }
                 log.info("🎯 标注文件URL: {}", annotatedMediaUrl);
 
                 // 更新响应结果，添加分析结果信息
@@ -1139,6 +1153,7 @@ public class FileUploadController {
         return ResponseEntity.ok(response);
     }
 
+    
     /**
      * 将MultipartFile转换为Base64字符串
      */
@@ -1169,7 +1184,15 @@ public class FileUploadController {
      * 调用外部模型（火山引擎）获取文字说明 - 支持图片和视频
      */
     private String callExternalModel(MultipartFile mediaFile, String prompt, String mediaType) throws Exception {
-        log.info("🏗️  构造外部模型请求体...");
+        log.info("📦 使用Base64传输到火山引擎API（兼容模式）");
+        return callExternalModelBase64(mediaFile, prompt, mediaType);
+    }
+
+    /**
+     * 使用Base64传输文件到火山引擎API（火山引擎要求Base64格式）
+     */
+    private String callExternalModelBase64(MultipartFile mediaFile, String prompt, String mediaType) throws Exception {
+        log.info("🏗️  构造火山引擎Base64格式请求体...");
 
         // 构造请求体
         Map<String, Object> requestBody = new HashMap<>();
@@ -1188,14 +1211,13 @@ public class FileUploadController {
         textContent.put("text", prompt);
         content.add(textContent);
 
-        // 媒体内容（图片或视频）- 需要Base64格式，所以临时转换
+        // 媒体内容（图片或视频）- 火山引擎API要求Base64格式
         Map<String, Object> mediaContent = new HashMap<>();
-        String mediaBase64ForExternal = "";  // 专门用于外部模型的Base64
+        String mediaBase64ForExternal = "";
 
         try {
-            // 为外部模型临时转换Base64
             mediaBase64ForExternal = convertMultipartFileToBase64(mediaFile, mediaType);
-            log.info("🔄 为外部模型生成{}Base64数据，长度: {} 字符", mediaType, mediaBase64ForExternal.length());
+            log.info("🔄 生成{}Base64数据，长度: {} 字符", mediaType, mediaBase64ForExternal.length());
 
             if ("image".equals(mediaType)) {
                 log.info("🖼️ 添加图片内容...");
@@ -1213,7 +1235,7 @@ public class FileUploadController {
                 mediaContent.put("video_url", videoUrl);
             }
         } catch (Exception e) {
-            log.error("❌ 为外部模型转换Base64失败: {}", e.getMessage());
+            log.error("❌ 转换Base64失败: {}", e.getMessage());
             throw new RuntimeException("外部模型Base64转换失败: " + e.getMessage());
         }
         content.add(mediaContent);
@@ -1222,18 +1244,17 @@ public class FileUploadController {
         messages.add(message);
         requestBody.put("messages", messages);
 
-        log.info("✅ 外部模型请求体构造完成 - 包含 {} 个消息对象", messages.size());
-        log.info("📤 发送{}请求到火山引擎...", mediaType);
+        log.info("✅ 请求体构造完成 - 包含 {} 个消息对象", messages.size());
 
         // 发送HTTP请求
         String result = sendHttpRequest(requestBody);
 
         log.info("📨 收到火山引擎{}响应 - 响应长度: {} 字符", mediaType, result.length());
-        log.info("🔍 {}响应预览: {}", mediaType, result.length() > 100 ? result.substring(0, 100) + "..." : result);
 
         return result;
     }
 
+    
     /**
      * 调用Python微服务获取标点媒体数据（二进制流传输优化版）
      */
