@@ -8,6 +8,7 @@ import cn.edu.bistu.cs.ir.service.UserService;
 import cn.edu.bistu.cs.ir.service.AIAnalysisService;
 import cn.edu.bistu.cs.ir.utils.FileUploadUtils;
 import cn.edu.bistu.cs.ir.config.VolcengineConfig;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
 
@@ -927,6 +928,9 @@ public class FileUploadController {
                 throw e;
             }
 
+            // 声明标注文件URL变量（用于后续响应构造）
+            String annotatedMediaUrl = null;
+
             // 3. 保存AI分析结果到数据库
             log.info("💾 步骤3: 开始保存AI分析结果到数据库...");
             try {
@@ -939,7 +943,7 @@ public class FileUploadController {
                 log.info("✅ AI分析结果保存成功 - 分��ID: {}", aiAnalysis.getId());
 
                 // 获取保存后的分析结果信息
-                String annotatedMediaUrl = aiAnalysis.getAnnotatedMediaUrl();
+                annotatedMediaUrl = aiAnalysis.getAnnotatedMediaUrl();
                 log.info("🎯 标注文件URL: {}", annotatedMediaUrl);
 
                 // 更新响应结果，添加分析结果信息
@@ -966,42 +970,76 @@ public class FileUploadController {
                 response.put("analysis_save_error", saveEx.getMessage());
             }
 
-            // 4. 构造组合返回结果
-            log.info("🏗️  步骤4: 构造组合响应结果...");
-            response.put("success", true);
-            response.put("message", "双重分析成功");
-            response.put("media_type", mediaType);
-            response.put("file_id", userFile.getId());
-            response.put("file_url", userFile.getFileUrl());
+            // 4. 构造标准化响应结果（模仿/api/file/list模式）
+            log.info("🏗️  步骤4: 构造标准化响应结果，消除Base64传输...");
+            log.debug("📊 数据流分析 - 原始数据统计:");
+            log.debug("   - externalModelResult长度: {} 字符", externalModelResult != null ? externalModelResult.length() : 0);
+            log.debug("   - annotatedMediaData长度: {} 字符", annotatedMediaData != null ? annotatedMediaData.length() : 0);
+            log.debug("   - annotatedMediaUrl: {}", annotatedMediaUrl);
 
-            // 外部模型结果（文字说明）
-            response.put("external_model_result", externalModelResult);
+            // 构建data对象，包含三个核心结果
+            Map<String, Object> data = new HashMap<>();
 
-            // Python微服务结果（标点媒体）
-            Map<String, Object> pythonResult = new HashMap<>();
-            if (pythonServiceData != null) {
-                pythonResult.put("code", pythonServiceData.get("code"));
-                pythonResult.put("result_type", pythonServiceData.get("result_type"));
+            // 核心结果1: 源文件
+            log.debug("📁 构建源文件信息...");
+            Map<String, Object> sourceFile = new HashMap<>();
+            sourceFile.put("file_id", userFile.getId());
+            sourceFile.put("file_url", userFile.getFileUrl());
+            sourceFile.put("media_type", mediaType);
+            sourceFile.put("original_filename", userFile.getOriginalFilename());
+            data.put("source_file", sourceFile);
+            log.info("✅ 源文件信息已构建: {} (ID: {})", userFile.getOriginalFilename(), userFile.getId());
 
-                // 动态设置标点数据字段
-                if ("image".equals(mediaType)) {
-                    pythonResult.put("annotated_image", annotatedMediaData);
-                } else if ("video".equals(mediaType)) {
-                    pythonResult.put("annotated_video", annotatedMediaData);
-                }
-                pythonResult.put("annotated_media", annotatedMediaData); // 通用字段
+            // 核心结果2: 标记文件
+            log.debug("🎯 构建标记文件信息...");
+            Map<String, Object> markedFile = new HashMap<>();
+            if (annotatedMediaUrl != null) {
+                markedFile.put("file_url", annotatedMediaUrl);
+                markedFile.put("media_type", mediaType);
+                markedFile.put("annotation_status", "completed");
+                log.info("✅ 标记文件URL已准备: {}", annotatedMediaUrl);
+                log.debug("   - Base64数据已转换为文件引用，传输优化: -33%");
+            } else {
+                markedFile.put("annotation_status", "failed");
+                markedFile.put("error", "标注文件生成失败");
+                log.warn("⚠️ 标记文件生成失败");
             }
-            response.put("python_service_result", pythonResult);
+            data.put("marked_file", markedFile);
 
-            log.info("📈 结果统计:");
-            log.info("   - 外部模型文字说明: {}", externalModelResult != null ? "✅" : "❌");
-            log.info("   - Python标点{}: {}", mediaType, annotatedMediaData != null ? "✅" : "❌");
+            // 核心结果3: 文本描述
+            log.debug("📝 构建文本描述信息...");
+            Map<String, Object> textDescription = new HashMap<>();
+            if (externalModelResult != null && !externalModelResult.trim().isEmpty()) {
+                String cleanedDescription = extractTextDescription(externalModelResult);
+                textDescription.put("description", cleanedDescription);
+                textDescription.put("status", "completed");
+                log.info("✅ 文本描述已提取: {} 字符", cleanedDescription.length());
+                log.debug("   - 原始数据已清理，移除JSON格式化标记");
+            } else {
+                textDescription.put("description", "");
+                textDescription.put("status", "empty");
+                log.warn("⚠️ 文本描述为空");
+            }
+            data.put("text_description", textDescription);
+
+            // 构造标准响应格式
+            log.debug("🏗️ 构造最终响应结构...");
+            response.put("success", true);
+            response.put("message", "AI分析完成");
+            response.put("data", data);
+
+            log.info("📈 新格式响应构造完成 - 完全消除Base64传输:");
+            log.info("   - 源文件: {} (ID: {})", userFile.getOriginalFilename(), userFile.getId());
+            log.info("   - 标记文件: {} (文件引用)", annotatedMediaUrl != null ? "✅" : "❌");
+            log.info("   - 文本描述: {} (纯文本)", externalModelResult != null ? "✅" : "❌");
+            log.info("   - 数据传输优化: Base64格式已完全移除");
+            log.info("   - 响应格式标准化: 采用了/api/file/list相同的success/data模式");
+
+            // 记录完成状态和关键信息
             log.info("   - 数据库文件ID: {}", userFile.getId());
-            log.info("   - 文件存储URL: {}", userFile.getFileUrl());
             log.info("   - AI分析ID: {}", aiAnalysis.getId());
             log.info("   - 分析状态: {}", aiAnalysis.getAnalysisStatus());
-            log.info("   - 标注文件URL: {}", aiAnalysis.getAnnotatedMediaUrl() != null ? "✅" : "❌");
-            log.info("✅ ===== 双重AI{}分析请求完成（含持久化） =====", mediaType);
+            log.info("✅ ===== AI{}分析请求完成（新响应格式） =====", mediaType);
 
         } catch (Exception e) {
             log.error("💥 ===== 双重AI{}分析请求失败 =====", mediaType);
@@ -1352,6 +1390,88 @@ public class FileUploadController {
             }
 
             throw new RuntimeException("HTTP请求失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 从外部模型结果中提取纯文本描述
+     * 处理external_model_result字段，去除多余的JSON格式信息，只保留核心描述内容
+     *
+     * @param externalModelResult 原始外部模型响应数据
+     * @return 清理后的纯文本描述
+     */
+    private String extractTextDescription(String externalModelResult) {
+        log.info("🔍 开始处理external_model_result字段数据...");
+
+        if (externalModelResult == null || externalModelResult.trim().isEmpty()) {
+            log.warn("⚠️ external_model_result为空或null");
+            return "";
+        }
+
+        try {
+            // 尝试解析JSON格式响应（如果响应是JSON格式）
+            if (externalModelResult.trim().startsWith("{") || externalModelResult.trim().startsWith("[")) {
+                log.debug("📝 检测到JSON格式响应，尝试解析...");
+                JsonNode jsonNode = objectMapper.readTree(externalModelResult);
+
+                // 尝试提取常见的描述字段
+                if (jsonNode.has("choices") && jsonNode.get("choices").isArray() && jsonNode.get("choices").size() > 0) {
+                    // 火山引擎API格式: choices[0].message.content
+                    JsonNode firstChoice = jsonNode.get("choices").get(0);
+                    if (firstChoice.has("message") && firstChoice.get("message").has("content")) {
+                        String content = firstChoice.get("message").get("content").asText();
+                        log.info("✅ 从choices[0].message.content提取文本: {} 字符", content.length());
+                        return content;
+                    }
+                } else if (jsonNode.has("description")) {
+                    String description = jsonNode.get("description").asText();
+                    log.info("✅ 从description字段提取文本: {} 字符", description.length());
+                    return description;
+                } else if (jsonNode.has("result")) {
+                    String result = jsonNode.get("result").asText();
+                    log.info("✅ 从result字段提取文本: {} 字符", result.length());
+                    return result;
+                } else if (jsonNode.has("content")) {
+                    String content = jsonNode.get("content").asText();
+                    log.info("✅ 从content字段提取文本: {} 字符", content.length());
+                    return content;
+                } else if (jsonNode.has("text")) {
+                    String text = jsonNode.get("text").asText();
+                    log.info("✅ 从text字段提取文本: {} 字符", text.length());
+                    return text;
+                }
+
+                // 如果是简单的字符串值节点
+                if (jsonNode.isTextual()) {
+                    String textValue = jsonNode.asText();
+                    log.info("✅ 提取JSON文本节点: {} 字符", textValue.length());
+                    return textValue;
+                }
+
+                log.warn("⚠️ JSON格式响应中未找到标准描述字段，返回完整原始数据");
+                return externalModelResult;
+            }
+
+            // 处理纯文本响应
+            log.info("📄 检测到纯文本响应，直接返回");
+            String cleanedText = externalModelResult.trim();
+
+            // 移除常见的格式化标记
+            cleanedText = cleanedText.replaceAll("\\*\\*(.*?)\\*\\*", "$1"); // 移除markdown粗体
+            cleanedText = cleanedText.replaceAll("\\*(.*?)\\*", "$1");     // 移除markdown斜体
+            cleanedText = cleanedText.replaceAll("#+\\s*", "");            // 移除markdown标题
+            cleanedText = cleanedText.replaceAll("\\[\\s*\\]", "");        // 移除空括号
+
+            log.info("✅ 文本清理完成: {} 字符", cleanedText.length());
+            return cleanedText;
+
+        } catch (Exception e) {
+            log.error("❌ 解析external_model_result时发生错误: {}", e.getMessage());
+            log.info("🔄 返回原始文本内容...");
+
+            // 解析失败时返回完整原始内容
+            log.warn("⚠️ JSON解析失败，返回完整原始内容，长度: {} 字符", externalModelResult.length());
+            return externalModelResult;
         }
     }
 

@@ -61,7 +61,7 @@ public class AIAnalysisService {
      * 保存AI分析结果
      * @param analysisId 分析记录ID
      * @param externalModelResult 外部模型结果
-     * @param pythonServiceResult Python微服务结果JSON字符串
+     * @param pythonServiceResult Python微服务结果JSON字符串（用于处理，不存储到数据库）
      * @param annotatedMediaData 标注媒体的Base64数据
      * @return 更新后的分析记录
      */
@@ -90,13 +90,11 @@ public class AIAnalysisService {
             analysis.setExternalModelResult(externalModelResult);
             log.info("✅ 外部模型结果已保存到分析记录");
 
-            // 限制Python微服务结果长度，避免数据库字段溢出（MySQL TEXT最大65535字符）
-            String limitedPythonResult = limitStringLength(pythonServiceResult, 60000);
-            analysis.setPythonServiceResult(limitedPythonResult);
-            if (pythonServiceResult.length() > 60000) {
-                log.warn("⚠️ Python微服务结果过长，已截断 - 原始长度: {}, 截断后长度: {}",
-                        pythonServiceResult.length(), limitedPythonResult.length());
-            }
+            // 不存储Python微服务的Base64数据以节省数据库空间
+            // 只处理标注文件，不存储原始JSON响应
+            analysis.setPythonServiceResult(null);
+            log.info("🗑️ 跳过Python微服务结果存储（避免Base64数据占用数据库空间）");
+            log.debug("📊 Python微服务结果原始长度: {} 字符（已舍弃）", pythonServiceResult != null ? pythonServiceResult.length() : 0);
 
             // 处理标注文件保存
             if (annotatedMediaData != null && !annotatedMediaData.trim().isEmpty()) {
@@ -122,8 +120,8 @@ public class AIAnalysisService {
                     savedAnalysis.getExternalModelResult().substring(0, 100) + "..." :
                     savedAnalysis.getExternalModelResult());
             }
-            log.info("🐍 Python微服务结果长度: {} 字符",
-                    pythonServiceResult != null ? pythonServiceResult.length() : 0);
+            log.info("🐍 Python微服务结果: {}（未存储，仅保留标注文件）",
+                    pythonServiceResult != null ? "已处理" : "为空");
             log.info("🎯 标注文件URL: {}", savedAnalysis.getAnnotatedMediaUrl());
 
             return savedAnalysis;
