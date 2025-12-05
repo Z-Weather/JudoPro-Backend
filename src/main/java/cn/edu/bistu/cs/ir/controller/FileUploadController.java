@@ -1,5 +1,6 @@
 package cn.edu.bistu.cs.ir.controller;
 
+import cn.edu.bistu.cs.ir.entity.AIAnalysis;
 import cn.edu.bistu.cs.ir.entity.UserFile;
 import cn.edu.bistu.cs.ir.model.User;
 import cn.edu.bistu.cs.ir.service.UserFileService;
@@ -808,7 +809,7 @@ public class FileUploadController {
 
         // 声明变量在try块外部，确保在catch块中可以访问
         String mediaType = "";
-        String mediaBase64;
+        String mediaBase64 = "";
 
         try {
             // 文件验证
@@ -873,14 +874,9 @@ public class FileUploadController {
                 userFileService.updateFileDescription(userId, userFile.getId(), description);
             }
 
-            // 4. 将文件转换为Base64
-            log.info("🔄 步骤4: 开始将{}文件转换为Base64...", mediaType);
-            mediaBase64 = convertMultipartFileToBase64(mediaFile, mediaType);
-            log.info("✅ {} Base64转换完成 - 长度: {} 字符", mediaType, mediaBase64.length());
-
-            // 4. 创建AI分析记录
-            log.info("📝 步骤4: 创建AI分析记录...");
-            cn.edu.bistu.cs.ir.entity.AIAnalysis aiAnalysis = aiAnalysisService.createAnalysis(
+            // 4. 创建AI分析记录（跳过Base64转换，直接使用二进制流传输）
+            log.info("📝 步骤4: 创建AI分析记录（二进制流传输模式）...");
+            AIAnalysis aiAnalysis = aiAnalysisService.createAnalysis(
                 userFile.getId(), userId, mediaType, prompt);
             log.info("✅ AI分析记录创建成功 - 分析ID: {}", aiAnalysis.getId());
 
@@ -895,18 +891,18 @@ public class FileUploadController {
             // 1. 调用外部模型（火山引擎）获取文字说明
             log.info("🔥 步骤1: 开始调用外部模型获取{}文字说明...", mediaType);
             try {
-                externalModelResult = callExternalModel(mediaBase64, prompt, mediaType);
+                externalModelResult = callExternalModel(mediaFile, prompt, mediaType);
                 log.info("✅ 外部模型调用成功 - 响应长度: {} 字符", externalModelResult.length());
             } catch (Exception e) {
                 log.error("❌ 外部模型调用失败: {}", e.getMessage());
                 throw e;
             }
 
-            // 2. 调用Python微服务获取标点媒体数据
-            log.info("🐍 步骤2: 开始调用Python微服务获取标点{}...", mediaType);
+            // 2. 调用Python微服务获取标点媒体数据（使用二进制流传输）
+            log.info("🐍 步骤2: 开始调用Python微服务获取标点{}（二进制流传输）...", mediaType);
             try {
-                pythonServiceResult = callPythonMicroservice(mediaBase64, mediaType);
-                log.info("✅ Python微服务调用成功 - 响应长度: {} 字符", pythonServiceResult.length());
+                pythonServiceResult = callPythonMicroserviceBinary(mediaFile, mediaType);
+                log.info("✅ Python微服务二进制流调用成功 - 响应长度: {} 字符", pythonServiceResult.length());
 
                 // 解析Python微服务响应
                 pythonServiceData = objectMapper.readValue(pythonServiceResult, Map.class);
@@ -1056,7 +1052,7 @@ public class FileUploadController {
     /**
      * 调用外部模型（火山引擎）获取文字说明 - 支持图片和视频
      */
-    private String callExternalModel(String mediaBase64, String prompt, String mediaType) throws Exception {
+    private String callExternalModel(MultipartFile mediaFile, String prompt, String mediaType) throws Exception {
         log.info("🏗️  构造外部模型请求体...");
 
         // 构造请求体
@@ -1076,22 +1072,33 @@ public class FileUploadController {
         textContent.put("text", prompt);
         content.add(textContent);
 
-        // 媒体内容（图片或视频）
+        // 媒体内容（图片或视频）- 需要Base64格式，所以临时转换
         Map<String, Object> mediaContent = new HashMap<>();
-        if ("image".equals(mediaType)) {
-            log.info("🖼️ 添加图片内容...");
-            mediaContent.put("type", "image_url");
-            Map<String, String> imageUrl = new HashMap<>();
-            String fullImageUrl = "data:image/jpeg;base64," + mediaBase64;
-            imageUrl.put("url", fullImageUrl);
-            mediaContent.put("image_url", imageUrl);
-        } else if ("video".equals(mediaType)) {
-            log.info("🎬 添加视频内容...");
-            mediaContent.put("type", "video_url");
-            Map<String, String> videoUrl = new HashMap<>();
-            String fullVideoUrl = "data:video/mp4;base64," + mediaBase64;
-            videoUrl.put("url", fullVideoUrl);
-            mediaContent.put("video_url", videoUrl);
+        String mediaBase64ForExternal = "";  // 专门用于外部模型的Base64
+
+        try {
+            // 为外部模型临时转换Base64
+            mediaBase64ForExternal = convertMultipartFileToBase64(mediaFile, mediaType);
+            log.info("🔄 为外部模型生成{}Base64数据，长度: {} 字符", mediaType, mediaBase64ForExternal.length());
+
+            if ("image".equals(mediaType)) {
+                log.info("🖼️ 添加图片内容...");
+                mediaContent.put("type", "image_url");
+                Map<String, String> imageUrl = new HashMap<>();
+                String fullImageUrl = "data:image/jpeg;base64," + mediaBase64ForExternal;
+                imageUrl.put("url", fullImageUrl);
+                mediaContent.put("image_url", imageUrl);
+            } else if ("video".equals(mediaType)) {
+                log.info("🎬 添加视频内容...");
+                mediaContent.put("type", "video_url");
+                Map<String, String> videoUrl = new HashMap<>();
+                String fullVideoUrl = "data:video/mp4;base64," + mediaBase64ForExternal;
+                videoUrl.put("url", fullVideoUrl);
+                mediaContent.put("video_url", videoUrl);
+            }
+        } catch (Exception e) {
+            log.error("❌ 为外部模型转换Base64失败: {}", e.getMessage());
+            throw new RuntimeException("外部模型Base64转换失败: " + e.getMessage());
         }
         content.add(mediaContent);
 
@@ -1112,7 +1119,80 @@ public class FileUploadController {
     }
 
     /**
-     * 调用Python微服务获取标点图片数据
+     * 调用Python微服务获取标点媒体数据（二进制流传输优化版）
+     */
+    private String callPythonMicroserviceBinary(MultipartFile mediaFile, String mediaType) throws Exception {
+        long startTime = System.currentTimeMillis();
+        log.info("🐍 构造Python微服务二进制流请求体...");
+        log.info("📊 文件信息: 名称={}, 大小={}bytes, 类型={}",
+                mediaFile.getOriginalFilename(), mediaFile.getSize(), mediaFile.getContentType());
+
+        // 文件大小验证
+        if (mediaFile.getSize() > 100 * 1024 * 1024) { // 100MB限制
+            throw new IllegalArgumentException("文件大小超过限制: 100MB");
+        }
+
+        // 创建multipart请求体
+        MultipartBody.Builder requestBodyBuilder = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("type", mediaType);
+
+        // 添加文件部分，使用正确的MIME类型
+        String contentType = mediaFile.getContentType();
+        if (contentType == null || contentType.isEmpty()) {
+            // 根据媒体类型设置默认Content-Type
+            contentType = "image".equals(mediaType) ? "image/jpeg" : "video/mp4";
+        }
+
+        log.info("📋 使用Content-Type: {}", contentType);
+
+        RequestBody fileBody = RequestBody.create(
+            MediaType.parse(contentType),
+            mediaFile.getBytes()
+        );
+
+        requestBodyBuilder.addFormDataPart("file", mediaFile.getOriginalFilename(), fileBody);
+
+        RequestBody body = requestBodyBuilder.build();
+
+        // 构建HTTP请求
+        Request request = new Request.Builder()
+                .url("http://127.0.0.1:8000/analyze_binary")  // 修改端口为8000
+                .addHeader("Content-Type", "multipart/form-data")
+                .post(body)
+                .build();
+
+        log.info("📤 发送二进制流请求到Python微服务...");
+        log.info("🚀 Python微服务请求详情:");
+        log.info("   URL: http://127.0.0.1:8000/analyze_binary");
+        log.info("   Method: POST");
+        log.info("   Content-Type: multipart/form-data");
+        log.info("   文件大小: {} bytes", mediaFile.getSize());
+
+        try (Response response = client.newCall(request).execute()) {
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+            double throughput = (double) mediaFile.getSize() / (duration / 1000.0) / 1024 / 1024; // MB/s
+
+            log.info("📥 收到Python微服务响应:");
+            log.info("   状态码: {}", response.code());
+            log.info("   响应时间: {}ms", duration);
+            log.info("   吞吐量: {:.2f}MB/s", throughput);
+
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("Python微服务返回错误: " + response.code() + " " + response.message());
+            }
+
+            String responseBody = response.body().string();
+            log.info("📨 响应长度: {} 字符", responseBody.length());
+            log.info("🔍 响应预览: {}", responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody);
+
+            return responseBody;
+        }
+    }
+
+    /**
+     * 调用Python微服务获取标点图片数据（原Base64方法，保留作为兼容）
      */
     private String callPythonMicroservice(String mediaBase64, String mediaType) throws Exception {
         log.info("🐍 构造Python微服务请求体...");
@@ -1274,7 +1354,7 @@ public class FileUploadController {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final OkHttpClient client = new OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(120, TimeUnit.SECONDS)  // 延长写入超时
+        .readTimeout(300, TimeUnit.SECONDS)    // 大幅延长读取超时，适应视频处理时间
         .build();
 }
