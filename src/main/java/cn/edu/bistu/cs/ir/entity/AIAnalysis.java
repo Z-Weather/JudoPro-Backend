@@ -34,6 +34,18 @@ public class AIAnalysis {
     private String externalModelResult;
 
     /**
+     * 外部模型文字描述文件的URL
+     */
+    @Column(name = "external_model_result_url", length = 500)
+    private String externalModelResultUrl;
+
+    /**
+     * 外部模型文字描述文件名
+     */
+    @Column(name = "external_model_result_filename", length = 255)
+    private String externalModelResultFilename;
+
+    /**
      * Python微服务返回的完整结果JSON
      */
     @Column(name = "python_service_result", columnDefinition = "TEXT")
@@ -132,6 +144,22 @@ public class AIAnalysis {
 
     public void setExternalModelResult(String externalModelResult) {
         this.externalModelResult = externalModelResult;
+    }
+
+    public String getExternalModelResultUrl() {
+        return externalModelResultUrl;
+    }
+
+    public void setExternalModelResultUrl(String externalModelResultUrl) {
+        this.externalModelResultUrl = externalModelResultUrl;
+    }
+
+    public String getExternalModelResultFilename() {
+        return externalModelResultFilename;
+    }
+
+    public void setExternalModelResultFilename(String externalModelResultFilename) {
+        this.externalModelResultFilename = externalModelResultFilename;
     }
 
     public String getPythonServiceResult() {

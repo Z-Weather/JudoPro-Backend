@@ -94,6 +94,27 @@ public class FileUploadConfig implements WebMvcConfigurer {
     public String getAnnotatedVideoPath() {
         return getAbsoluteUploadPath() + File.separator + "annotated_videos";
     }
+
+    /**
+     * 获取文字描述专用目录路径
+     */
+    public String getTextDescriptionsPath() {
+        return getAbsoluteUploadPath() + File.separator + "text_descriptions";
+    }
+
+    /**
+     * 获取图片分析文字描述路径
+     */
+    public String getImageAnalysisTextPath() {
+        return getTextDescriptionsPath() + File.separator + "image_analysis";
+    }
+
+    /**
+     * 获取视频分析文字描述路径
+     */
+    public String getVideoAnalysisTextPath() {
+        return getTextDescriptionsPath() + File.separator + "video_analysis";
+    }
     
     // Getters and Setters
     public String getUploadPath() {

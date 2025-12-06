@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS ai_analysis (
     user_file_id BIGINT NOT NULL COMMENT '关联的用户文件ID',
     user_id BIGINT NOT NULL COMMENT '用户ID',
     external_model_result LONGTEXT COMMENT '外部模型（火山引擎）返回的文字描述',
+    external_model_result_url VARCHAR(500) COMMENT '外部模型文字描述文件的URL',
+    external_model_result_filename VARCHAR(255) COMMENT '外部模型文字描述文件名',
     python_service_result LONGTEXT COMMENT 'Python微服务返回的完整结果JSON',
     annotated_media_url VARCHAR(500) COMMENT '标注后的媒体文件URL',
     annotated_filename VARCHAR(255) COMMENT '标注媒体文件的存储文件名',

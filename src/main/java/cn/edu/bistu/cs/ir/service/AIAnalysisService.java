@@ -80,15 +80,41 @@ public class AIAnalysisService {
             AIAnalysis analysis = analysisOpt.get();
             log.info("🔍 找到分析记录 - 媒体类型: {}, 当前状态: {}", analysis.getMediaType(), analysis.getAnalysisStatus());
 
-            // 保存文本描述结果
-            log.info("📝 开始保存文本描述结果...");
+            // 保存文本描述结果为文件
+            log.info("📝 开始保存文本描述结果为文件...");
             log.info("📄 外部模型结果长度: {}", externalModelResult != null ? externalModelResult.length() : 0);
+
+            String textDescriptionUrl = null;
+            String textDescriptionFilename = null;
+
             if (externalModelResult != null && externalModelResult.length() > 0) {
                 log.info("📋 外部模型结果预览: {}", externalModelResult.length() > 100 ?
                         externalModelResult.substring(0, 100) + "..." : externalModelResult);
+
+                // 使用FileUploadUtils保存文字描述为.txt文件
+                try {
+                    FileUploadUtils.AnnotatedFileResult textFileResult = fileUploadUtils.saveTextDescriptionAsFile(
+                        externalModelResult, analysis.getMediaType()
+                    );
+                    textDescriptionUrl = textFileResult.getFileUrl();
+                    textDescriptionFilename = textFileResult.getFilename();
+
+                    log.info("✅ 文字描述文件保存成功: {}", textDescriptionUrl);
+                    log.info("📁 文字描述文件名: {}", textDescriptionFilename);
+
+                } catch (Exception e) {
+                    log.error("❌ 保存文字描述文件失败: {}", e.getMessage(), e);
+                    // 如果文件保存失败，仍然保存到数据库作为备份
+                    analysis.setExternalModelResult(externalModelResult);
+                    log.info("⚠️ 文字描述已保存到数据库作为备份");
+                }
             }
-            analysis.setExternalModelResult(externalModelResult);
-            log.info("✅ 外部模型结果已保存到分析记录");
+
+            // 不将长文本存储到数据库，避免数据库膨胀
+            analysis.setExternalModelResult(null);
+            analysis.setExternalModelResultUrl(textDescriptionUrl);
+            analysis.setExternalModelResultFilename(textDescriptionFilename);
+            log.info("✅ 文字描述处理完成 - URL方式: {}", textDescriptionUrl != null);
 
             // 不存储Python微服务的Base64数据以节省数据库空间
             // 只处理标注文件，不存储原始JSON响应

@@ -1085,12 +1085,22 @@ public class FileUploadController {
                     response.put("annotated_filename", aiAnalysis.getAnnotatedFilename());
                 }
 
+                // 添加文字描述文件信息
+                if (aiAnalysis.getExternalModelResultUrl() != null) {
+                    response.put("text_description_url", aiAnalysis.getExternalModelResultUrl());
+                    response.put("text_description_filename", aiAnalysis.getExternalModelResultFilename());
+                    log.info("📝 文字描述文件URL已添加到响应: {}", aiAnalysis.getExternalModelResultUrl());
+                }
+
                 // 添加数据库中的分析结果信息
                 response.put("analysis_id", aiAnalysis.getId());
                 response.put("analysis_status", aiAnalysis.getAnalysisStatus());
                 response.put("analysis_time", aiAnalysis.getAnalysisTime());
                 response.put("saved_external_model_result", aiAnalysis.getExternalModelResult());
-                response.put("has_description", aiAnalysis.getExternalModelResult() != null && !aiAnalysis.getExternalModelResult().trim().isEmpty());
+                response.put("has_description",
+                    (aiAnalysis.getExternalModelResultUrl() != null && !aiAnalysis.getExternalModelResultUrl().trim().isEmpty()) ||
+                    (aiAnalysis.getExternalModelResult() != null && !aiAnalysis.getExternalModelResult().trim().isEmpty())
+                );
 
                 log.info("📊 数据库保存结果检查:");
                 log.info("   - 外部模型结果已保存: {}", aiAnalysis.getExternalModelResult() != null ? "✅" : "❌");

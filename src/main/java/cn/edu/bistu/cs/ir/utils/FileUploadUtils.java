@@ -40,20 +40,29 @@ public class FileUploadUtils {
         String videoPath = fileUploadConfig.getVideoUploadPath();
         String annotatedImagePath = fileUploadConfig.getAnnotatedImagePath();
         String annotatedVideoPath = fileUploadConfig.getAnnotatedVideoPath();
+        String textDescriptionsPath = fileUploadConfig.getTextDescriptionsPath();
+        String imageAnalysisTextPath = fileUploadConfig.getImageAnalysisTextPath();
+        String videoAnalysisTextPath = fileUploadConfig.getVideoAnalysisTextPath();
 
         log.info("文件上传根目录: {}", uploadPath);
         log.info("图片上传目录: {}", imagePath);
         log.info("视频上传目录: {}", videoPath);
         log.info("标注图片目录: {}", annotatedImagePath);
         log.info("标注视频目录: {}", annotatedVideoPath);
+        log.info("文字描述专用目录: {}", textDescriptionsPath);
+        log.info("图片分析文字描述目录: {}", imageAnalysisTextPath);
+        log.info("视频分析文字描述目录: {}", videoAnalysisTextPath);
 
         createDirectoryIfNotExists(uploadPath);
         createDirectoryIfNotExists(imagePath);
         createDirectoryIfNotExists(videoPath);
         createDirectoryIfNotExists(annotatedImagePath);
         createDirectoryIfNotExists(annotatedVideoPath);
+        createDirectoryIfNotExists(textDescriptionsPath);
+        createDirectoryIfNotExists(imageAnalysisTextPath);
+        createDirectoryIfNotExists(videoAnalysisTextPath);
 
-        log.info("✅ 目录初始化完成（包含标注文件目录）");
+        log.info("✅ 目录初始化完成（包含文字描述专用目录）");
     }
     
     /**
@@ -447,6 +456,74 @@ public class FileUploadUtils {
         } catch (IOException e) {
             log.error("❌ 保存{}标注文件失败: {}", mediaType, e.getMessage());
             throw new IOException("保存标注文件失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 保存文字描述为文本文件
+     * @param textContent 文字描述内容
+     * @param mediaType 媒体类型
+     * @return 文本文件结果
+     * @throws IOException 保存异常
+     */
+    public AnnotatedFileResult saveTextDescriptionAsFile(String textContent, String mediaType) throws IOException {
+        log.info("🔄 开始保存{}的文字描述为文本文件", mediaType);
+        log.info("📊 文字描述长度: {} 字符", textContent != null ? textContent.length() : 0);
+
+        try {
+            if (textContent == null || textContent.trim().isEmpty()) {
+                throw new IllegalArgumentException("文字描述内容为空");
+            }
+
+            // 生成唯一的文件名
+            String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date());
+            String randomSuffix = String.format("%04d", new java.util.Random().nextInt(10000));
+            String textFilename = String.format("analysis_%s_%s.txt", timestamp, randomSuffix);
+
+            // 选择存储路径 - 使用专用文字描述文件夹
+            String textPath;
+            String urlType;
+            if ("image".equals(mediaType)) {
+                textPath = fileUploadConfig.getImageAnalysisTextPath(); // 使用专用图片分析文字描述目录
+                urlType = "text_descriptions/image_analysis";
+                log.info("🖼️ 图片分析文字描述，存储路径: {}", textPath);
+                log.info("📂 文件夹类型: 专用图片分析文字描述目录");
+            } else if ("video".equals(mediaType)) {
+                textPath = fileUploadConfig.getVideoAnalysisTextPath(); // 使用专用视频分析文字描述目录
+                urlType = "text_descriptions/video_analysis";
+                log.info("🎬 视频分析文字描述，存储路径: {}", textPath);
+                log.info("📂 文件夹类型: 专用视频分析文字描述目录");
+            } else {
+                log.error("❌ 不支持的媒体类型: {}", mediaType);
+                throw new IllegalArgumentException("不支持的媒体类型: " + mediaType);
+            }
+
+            // 确保目录存在
+            java.io.File dir = new java.io.File(textPath);
+            if (!dir.exists()) {
+                dir.mkdirs();
+                log.info("📁 创建目录: {}", textPath);
+            }
+
+            // 保存文字描述为UTF-8编码的文本文件
+            Path filePath = Paths.get(textPath, textFilename);
+            byte[] textBytes = textContent.getBytes("UTF-8");
+            Files.write(filePath, textBytes);
+
+            // 生成访问URL
+            String accessUrl = "/uploads/" + urlType + "/" + textFilename;
+
+            log.info("✅ 文字描述文件保存成功 - 使用专用文字描述目录");
+            log.info("📁 存储路径: {}", filePath.toAbsolutePath());
+            log.info("🔗 访问URL: {}", accessUrl);
+            log.info("📊 文件大小: {} bytes", textBytes.length);
+            log.info("🆕 文件夹结构: 文字描述文件已从混合目录迁移至专用目录");
+
+            return new AnnotatedFileResult(accessUrl, textFilename, textBytes.length);
+
+        } catch (IOException e) {
+            log.error("❌ 保存{}文字描述文件失败: {}", mediaType, e.getMessage());
+            throw new IOException("保存文字描述文件失败: " + e.getMessage(), e);
         }
     }
 }
