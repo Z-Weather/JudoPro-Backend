@@ -8,7 +8,6 @@ import cn.edu.bistu.cs.ir.service.UserService;
 import cn.edu.bistu.cs.ir.service.AIAnalysisService;
 import cn.edu.bistu.cs.ir.utils.FileUploadUtils;
 import cn.edu.bistu.cs.ir.config.VolcengineConfig;
-import cn.edu.bistu.cs.ir.config.NetworkConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
@@ -1365,16 +1364,16 @@ public class FileUploadController {
 
         RequestBody body = requestBodyBuilder.build();
 
-        // 构建HTTP请求 - 使用统一配置
+        // 构建HTTP请求
         Request request = new Request.Builder()
-                .url(NetworkConfig.getPythonBinaryUrl())
+                .url("http://127.0.0.1:8000/analyze_binary")  // 修改端口为8000
                 .addHeader("Content-Type", "multipart/form-data")
                 .post(body)
                 .build();
 
         log.info("📤 发送二进制流请求到Python微服务...");
         log.info("🚀 Python微服务请求详情:");
-        log.info("   URL: {}", NetworkConfig.getPythonBinaryUrl());
+        log.info("   URL: http://127.0.0.1:8000/analyze_binary");
         log.info("   Method: POST");
         log.info("   Content-Type: multipart/form-data");
         log.info("   文件大小: {} bytes", mediaFile.getSize());
@@ -1412,7 +1411,7 @@ public class FileUploadController {
         pythonRequest.put("type", mediaType); // "image" 或 "video"
         pythonRequest.put("data_base64", mediaBase64);
 
-        log.info("📤 准备发送请求到Python微服务 ({} )...", NetworkConfig.getPythonBase64Url());
+        log.info("📤 准备发送请求到Python微服务 (http://127.0.0.1:5000/analyze)...");
 
         // 发送HTTP请求到Python微服务
         String pythonResult = callPythonService(pythonRequest);
@@ -1433,7 +1432,7 @@ public class FileUploadController {
             // 打印请求体详情
             String requestBodyStr = objectMapper.writeValueAsString(requestBody);
             log.info("🚀 Python微服务请求详情:");
-            log.info("   URL: {}", NetworkConfig.getPythonBase64Url());
+            log.info("   URL: http://127.0.0.1:5000/analyze");
             log.info("   Method: POST");
             log.info("   Content-Type: application/json");
             log.info("   Body大小: {} 字符", requestBodyStr.length());
@@ -1443,7 +1442,7 @@ public class FileUploadController {
             RequestBody body = RequestBody.create(mediaType, requestBodyStr);
 
             Request request = new Request.Builder()
-                .url(NetworkConfig.getPythonBase64Url())
+                .url("http://127.0.0.1:5000/analyze")
                 .addHeader("Content-Type", "application/json")
                 .post(body)
                 .build();
