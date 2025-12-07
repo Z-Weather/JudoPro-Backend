@@ -1015,13 +1015,11 @@ public class FileUploadController {
                 if (annotatedFileUrl != null && !annotatedFileUrl.isEmpty()) {
                     log.info("✅ Python微服务返回标注文件URL: {}", annotatedFileUrl);
                     log.info("✅ 标注文件名: {}", annotatedFilename);
-                    log.info("🐛 DEBUG: 后端收到微服务URL，准备下载 - URL: {}", annotatedFileUrl);
 
                     // 从URL下载文件并保存到后端
                     try {
                         log.info("🔄 开始从URL下载标注文件...");
                         log.info("📡 微服务URL: {}", annotatedFileUrl);
-                        log.info("🐛 DEBUG: 后端即将请求的URL: {}", annotatedFileUrl);
                         byte[] fileBytes = downloadFileFromUrl(annotatedFileUrl, mediaType);
 
                         if (fileBytes != null && fileBytes.length > 0) {
@@ -1368,7 +1366,7 @@ public class FileUploadController {
 
         // 构建HTTP请求
         Request request = new Request.Builder()
-                .url("http://10.199.201.199:8000/analyze_binary")  // 修改端口为8000
+                .url("http://127.0.0.1:8000/analyze_binary")  // 修改端口为8000
                 .addHeader("Content-Type", "multipart/form-data")
                 .post(body)
                 .build();
@@ -1444,7 +1442,7 @@ public class FileUploadController {
             RequestBody body = RequestBody.create(mediaType, requestBodyStr);
 
             Request request = new Request.Builder()
-                .url("http://10.199.201.199:5000/analyze")
+                .url("http://127.0.0.1:5000/analyze")
                 .addHeader("Content-Type", "application/json")
                 .post(body)
                 .build();
