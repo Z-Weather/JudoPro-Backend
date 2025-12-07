@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS ai_analysis (
     media_type VARCHAR(20) NOT NULL COMMENT '媒体类型（image/video）',
     prompt VARCHAR(1000) COMMENT '分析提示词',
 
-    INDEX idx_user_file_id (user_file_id) COMMENT '用户文件ID索引',
+    INDEX idx_user_file_id (user_file_id) COMMENT '用户文件ID索引', 
     INDEX idx_user_id (user_id) COMMENT '用户ID索引',
     INDEX idx_media_type (media_type) COMMENT '媒体类型索引',
     INDEX idx_analysis_status (analysis_status) COMMENT '分析状态索引',
@@ -34,10 +34,3 @@ MODIFY COLUMN external_model_result LONGTEXT COMMENT '外部模型（火山引�
 
 ALTER TABLE ai_analysis
 MODIFY COLUMN python_service_result LONGTEXT COMMENT 'Python微服务返回的完整结果JSON';
-
--- 添加外键约束（可选，根据实际需要）
--- ALTER TABLE ai_analysis ADD CONSTRAINT fk_ai_analysis_user_file
--- FOREIGN KEY (user_file_id) REFERENCES user_files(id) ON DELETE CASCADE;
-
--- ALTER TABLE ai_analysis ADD CONSTRAINT fk_ai_analysis_user
--- FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;

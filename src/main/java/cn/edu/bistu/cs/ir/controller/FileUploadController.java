@@ -570,31 +570,41 @@ public class FileUploadController {
         try {
             // 获取当前用户ID
             Long userId = getCurrentUserId(authentication, request);
-            
-            // 创建分页对象
-            Pageable pageable = PageRequest.of(page, size);
+            log.info("👤 [用户认证] 获取用户{}的文件和AI分析结果列表", userId);
 
-            // 获取用户文件列表
-            Page<UserFile> userFiles;
-            if (type != null && !type.isEmpty()) {
-                userFiles = userFileService.getUserFilesByType(userId, type, pageable);
-            } else if (filename != null && !filename.isEmpty()) {
-                userFiles = userFileService.searchUserFiles(userId, filename, pageable);
-            } else {
-                userFiles = userFileService.getUserFiles(userId, pageable);
+            // 使用新的合并查询方法，同时获取原始文件和AI分析结果
+            Map<String, Object> resultData = userFileService.getUserFilesWithAnalysisPaged(
+                userId, page, size, type, filename);
+
+            // 添加调试日志：打印完整的返回JSON数据
+            try {
+                String responseDataJson = objectMapper.writeValueAsString(resultData);
+                log.info("📋 [API返回] /api/file/list 完整响应数据:");
+                log.info("📋 [API返回] 数据长度: {} 字符", responseDataJson.length());
+                log.info("📋 [API返回] 内容预览: {}", responseDataJson.length() > 500 ? responseDataJson.substring(0, 500) + "..." : responseDataJson);
+
+                // 统计AI分析结果数量
+                List<?> filesList = (List<?>) resultData.get("files");
+                long analysisCount = filesList.stream()
+                        .filter(file -> {
+                            try {
+                                Object hasAnalysis = file.getClass().getMethod("getHasAnalysis").invoke(file);
+                                return Boolean.TRUE.equals(hasAnalysis);
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        })
+                        .count();
+                log.info("📊 [API返回] 文件总数: {}, 包含AI分析结果的数量: {}", filesList.size(), analysisCount);
+            } catch (Exception e) {
+                log.warn("⚠️ [API返回] 序列化响应数据时出错: {}", e.getMessage());
             }
-            
+
             response.put("success", true);
-            response.put("data", Map.of(
-                "files", userFiles.getContent(),
-                "totalElements", userFiles.getTotalElements(),
-                "totalPages", userFiles.getTotalPages(),
-                "currentPage", userFiles.getNumber(),
-                "size", userFiles.getSize(),
-                "hasNext", userFiles.hasNext(),
-                "hasPrevious", userFiles.hasPrevious()
-            ));
-            
+            response.put("data", resultData);
+            response.put("message", "获取成功");
+
+            log.info("✅ [API返回] /api/file/list 接口处理完成");
             return ResponseEntity.ok(response);
             
         } catch (IllegalStateException e) {
@@ -868,7 +878,9 @@ public class FileUploadController {
     public ResponseEntity<Map<String, Object>> analyzeMedia(
             @RequestParam("file") MultipartFile mediaFile,
             @RequestParam(value = "prompt", required = false) String prompt,
-            @RequestParam(value = "description", required = false) String description) {
+            @RequestParam(value = "description", required = false) String description,
+            Authentication authentication,
+            HttpServletRequest request) {
 
         log.info("🎯 ===== 开始双重AI分析请求 =====");
 
@@ -899,9 +911,11 @@ public class FileUploadController {
                 return ResponseEntity.badRequest().body(response);
             }
 
-            // 直接使用默认用户ID，避免HttpServletRequest依赖问题
-            Long userId = 1L;
-            log.info("👤 用户ID: {}", userId);
+            // 使用动态用户ID获取逻辑，确保分析结果正确关联到当前用户
+            Long userId = getCurrentUserId(authentication, request);
+            log.info("🔍 [用户认证] 认证机制: Session + Spring Security 双重认证");
+            log.info("👤 [用户认证] 获取到的用户ID: {}", userId);
+            log.info("💾 [数据存储] 将使用用户ID {} 保存到ai_analysis表", userId);
 
             // 检测媒体类型
             String contentType = mediaFile.getContentType();
@@ -955,9 +969,12 @@ public class FileUploadController {
 
             // 4. 创建AI分析记录（跳过Base64转换，直接使用二进制流传输）
             log.info("📝 步骤4: 创建AI分析记录（二进制流传输模式）...");
+            log.info("🔗 [数据关联] userFileId: {} -> userId: {}", userFile.getId(), userId);
+            log.info("📋 [数据表] ai_analysis表记录创建中...");
             AIAnalysis aiAnalysis = aiAnalysisService.createAnalysis(
                 userFile.getId(), userId, mediaType, prompt);
-            log.info("✅ AI分析记录创建成功 - 分析ID: {}", aiAnalysis.getId());
+            log.info("✅ [数据存储] AI分析记录创建成功 - 分析ID: {}, 关联用户ID: {}",
+                aiAnalysis.getId(), aiAnalysis.getUserId());
 
             // 初始化结果变量
             String externalModelResult = null;
@@ -1650,7 +1667,11 @@ public class FileUploadController {
 
             // 直接调用现有的analyze接口，避免重复实现AI分析逻辑
             log.info("🔄 调用现有/api/file/analyze接口...");
-            ResponseEntity<Map<String, Object>> analyzeResponse = analyzeMedia(mediaFile, prompt, userFile.getOriginalFilename());
+            log.info("🔍 [方法调用] 传递认证参数: authentication={}, request={}",
+                authentication != null ? authentication.getClass().getSimpleName() : "null",
+                request != null ? request.getClass().getSimpleName() : "null");
+            ResponseEntity<Map<String, Object>> analyzeResponse = analyzeMedia(
+                mediaFile, prompt, userFile.getOriginalFilename(), authentication, request);
 
             if (analyzeResponse.getStatusCode().is2xxSuccessful()) {
                 Map<String, Object> responseData = analyzeResponse.getBody();

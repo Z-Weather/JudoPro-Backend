@@ -46,6 +46,14 @@ public interface AIAnalysisRepository extends JpaRepository<AIAnalysis, Long> {
     List<AIAnalysis> findByUserIdAndAnalysisStatusOrderByCreatedTimeDesc(Long userId, String status);
 
     /**
+     * 根据用户文件ID和分析状态查找分析结果
+     * @param userFileId 用户文件ID
+     * @param status 分析状态
+     * @return 分析结果列表
+     */
+    List<AIAnalysis> findByUserFileIdAndAnalysisStatusOrderByCreatedTimeDesc(Long userFileId, String status);
+
+    /**
      * 根据媒体类型查找分析结果
      * @param mediaType 媒体类型（image/video）
      * @return 分析结果列表
@@ -69,6 +77,15 @@ public interface AIAnalysisRepository extends JpaRepository<AIAnalysis, Long> {
      */
     @Query("SELECT COUNT(a) FROM AIAnalysis a WHERE a.userId = :userId")
     long countByUserId(@Param("userId") Long userId);
+
+    /**
+     * 统计用户指定状态的分析结果数量
+     * @param userId 用户ID
+     * @param analysisStatus 分析状态
+     * @return 分析结果数量
+     */
+    @Query("SELECT COUNT(a) FROM AIAnalysis a WHERE a.userId = :userId AND a.analysisStatus = :analysisStatus")
+    long countByUserIdAndAnalysisStatus(@Param("userId") Long userId, @Param("analysisStatus") String analysisStatus);
 
     /**
      * 统计各状态的分析结果数量
