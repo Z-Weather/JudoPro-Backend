@@ -44,8 +44,17 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/api/file")
 @CrossOrigin(origins = "*")
 public class FileUploadController {
-    
+
     private static final Logger log = LoggerFactory.getLogger(FileUploadController.class);
+
+    // 服务器地址配置常量
+    private static final String SERVER_HOST = "10.199.201.199";
+    private static final String SERVER_PORT = "8080";
+    private static final String PYTHON_MICROSERVICE_PORT = "8000";
+
+    // 微服务地址常量
+    private static final String PYTHON_BINARY_URL = "http://" + SERVER_HOST + ":" + PYTHON_MICROSERVICE_PORT + "/analyze_binary";
+    private static final String PYTHON_BASE64_URL = "http://" + SERVER_HOST + ":" + "5000" + "/analyze";
     
     @Autowired
     private FileUploadUtils fileUploadUtils;
@@ -1016,11 +1025,19 @@ public class FileUploadController {
                     log.info("✅ Python微服务返回标注文件URL: {}", annotatedFileUrl);
                     log.info("✅ 标注文件名: {}", annotatedFilename);
 
+                    // 处理微服务返回的URL，替换localhost为服务器地��
+                    String processedFileUrl = replaceLocalhostWithServerAddress(annotatedFileUrl);
+                    if (!processedFileUrl.equals(annotatedFileUrl)) {
+                        log.info("🔄 [URL处理] 已替换URL地址:");
+                        log.info("📡 [URL处理] 原始URL: {}", annotatedFileUrl);
+                        log.info("📡 [URL处理] 处理后URL: {}", processedFileUrl);
+                    }
+
                     // 从URL下载文件并保存到后端
                     try {
                         log.info("🔄 开始从URL下载标注文件...");
-                        log.info("📡 微服务URL: {}", annotatedFileUrl);
-                        byte[] fileBytes = downloadFileFromUrl(annotatedFileUrl, mediaType);
+                        log.info("📡 下载URL: {}", processedFileUrl);
+                        byte[] fileBytes = downloadFileFromUrl(processedFileUrl, mediaType);
 
                         if (fileBytes != null && fileBytes.length > 0) {
                             // 使用FileUploadUtils保存到正确的后端目录
@@ -1366,7 +1383,7 @@ public class FileUploadController {
 
         // 构建HTTP请求
         Request request = new Request.Builder()
-                .url("http://127.0.0.1:8000/analyze_binary")  // 修改端口为8000
+                .url(PYTHON_BINARY_URL)  // 使用全局常量配置
                 .addHeader("Content-Type", "multipart/form-data")
                 .post(body)
                 .build();
@@ -1442,7 +1459,7 @@ public class FileUploadController {
             RequestBody body = RequestBody.create(mediaType, requestBodyStr);
 
             Request request = new Request.Builder()
-                .url("http://127.0.0.1:5000/analyze")
+                .url(PYTHON_BASE64_URL)
                 .addHeader("Content-Type", "application/json")
                 .post(body)
                 .build();
@@ -1796,6 +1813,35 @@ public class FileUploadController {
 
             return fileBytes;
         }
+    }
+
+    /**
+     * 替换URL中的localhost为服务器地址
+     * 解决微服务返回localhost地址导致的404错误
+     *
+     * @param originalUrl 原始URL
+     * @return 处理后的URL
+     */
+    private String replaceLocalhostWithServerAddress(String originalUrl) {
+        if (originalUrl == null || originalUrl.isEmpty()) {
+            return originalUrl;
+        }
+
+        // 替换各种localhost/127.0.0.1的情况，使用全局常量
+        String processedUrl = originalUrl
+                .replace("127.0.0.1:" + PYTHON_MICROSERVICE_PORT, SERVER_HOST + ":" + PYTHON_MICROSERVICE_PORT)
+                .replace("localhost:" + PYTHON_MICROSERVICE_PORT, SERVER_HOST + ":" + PYTHON_MICROSERVICE_PORT);
+
+        // 处理其他���口情况
+        if (processedUrl.contains("127.0.0.1") || processedUrl.contains("localhost")) {
+            log.warn("⚠️ [URL处理] 检测到未处理的localhost地址: {}", originalUrl);
+            // 更通用的替换逻辑
+            processedUrl = processedUrl.replaceAll("127\\.0\\.0\\.1:\\d+", SERVER_HOST + ":" + PYTHON_MICROSERVICE_PORT);
+            processedUrl = processedUrl.replaceAll("localhost:\\d+", SERVER_HOST + ":" + PYTHON_MICROSERVICE_PORT);
+        }
+
+        log.info("🔧 [URL处理] 地址替换逻辑应用完成");
+        return processedUrl;
     }
 
     private final ObjectMapper objectMapper = new ObjectMapper();
