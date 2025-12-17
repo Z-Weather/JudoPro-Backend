@@ -910,6 +910,7 @@ public class FileUploadController {
         // 声明变量在try块外部，确保在catch块中可以访问
         String mediaType = "";
         String mediaBase64 = "";
+        UserFile userFile = null;
 
         try {
             // 文件验证
@@ -962,7 +963,6 @@ public class FileUploadController {
 
             // 2. 保存文件信息到数据库
             log.info("🗄️  步骤2: 开始保存文件信息到数据库...");
-            UserFile userFile;
             if ("image".equals(mediaType)) {
                 userFile = userFileService.saveImageFile(userId, mediaFile, fileUrl);
             } else {
@@ -1237,6 +1237,34 @@ public class FileUploadController {
             response.put("message", "双重分析失败: " + e.getMessage());
             response.put("error_type", e.getClass().getSimpleName());
             response.put("media_type", mediaType);
+            
+            // 即使分析失败，如果有源文件，也返回源文件信息，以便前端展示
+            if (userFile != null) {
+                log.info("⚠️ 分析失败，但尝试返回源文件信息 (ID: {})", userFile.getId());
+                Map<String, Object> data = new HashMap<>();
+                
+                // 核心结果1: 源文件
+                Map<String, Object> sourceFile = new HashMap<>();
+                sourceFile.put("file_id", userFile.getId());
+                sourceFile.put("file_url", userFile.getFileUrl());
+                sourceFile.put("media_type", mediaType);
+                sourceFile.put("original_filename", userFile.getOriginalFilename());
+                data.put("source_file", sourceFile);
+                
+                // 核心结果2: 标记文件 (标记为失败)
+                Map<String, Object> markedFile = new HashMap<>();
+                markedFile.put("annotation_status", "failed");
+                markedFile.put("error", "AI分析失败: " + e.getMessage());
+                data.put("marked_file", markedFile);
+                
+                // 核心结果3: 文本描述 (标记为失败)
+                Map<String, Object> textDescription = new HashMap<>();
+                textDescription.put("status", "failed");
+                textDescription.put("description", "暂无文字描述 (AI分析失败)");
+                data.put("text_description", textDescription);
+                
+                response.put("data", data);
+            }
         }
 
         return ResponseEntity.ok(response);
