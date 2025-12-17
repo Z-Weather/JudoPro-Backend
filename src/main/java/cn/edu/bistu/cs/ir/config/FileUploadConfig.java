@@ -56,16 +56,8 @@ public class FileUploadConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // 配置静态资源访问路径
         String uploadDir = getAbsoluteUploadPath();
-        // 使用toUri()确保路径格式正确（特别是在Windows上）
-        String uploadUri = Paths.get(uploadPath).toAbsolutePath().toUri().toString();
-
-        // 关键修复：ResourceHandler要求目录URI必须以/结尾，否则无法正确拼接文件名
-        if (!uploadUri.endsWith("/")) {
-            uploadUri += "/";
-        }
-        
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations(uploadUri);
+                .addResourceLocations("file:" + uploadDir + File.separator);
     }
     
     /**
